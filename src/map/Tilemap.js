@@ -1,130 +1,79 @@
 /**
- * Tilemap - Loads and renders a JSON tilemap with layering support
- * Tile IDs:
- *   0 = empty/transparent
- *   1 = grass
- *   2 = tree
- *   3 = cliff/border
- *   4 = water
- *   5 = bridge
- *   6 = path
+ * Tilemap - Renders JSON tilemap layers with camera culling and z-index support
  */
 export class Tilemap {
   constructor(mapData) {
-    this.data = mapData;
-    this.tileSize = mapData.tileSize;
-    this.width = mapData.width;
-    this.height = mapData.height;
-    this.layers = mapData.layers;
+    this.data      = mapData;
+    this.tileSize  = mapData.tileSize;
+    this.width     = mapData.width;
+    this.height    = mapData.height;
+    this.layers    = mapData.layers;
     this.collisionMap = mapData.collisionMap;
 
-    // Total world size in pixels
-    this.worldWidth = this.width * this.tileSize;
+    this.worldWidth  = this.width  * this.tileSize;
     this.worldHeight = this.height * this.tileSize;
   }
 
-  /**
-   * Render a specific layer with camera offset
-   * Only renders tiles visible in the camera viewport
-   */
   renderLayer(ctx, assets, layerIndex, camera) {
     const layer = this.layers[layerIndex];
-    if (!layer) return;
+    if (!layer || !layer.data) return;
 
     const ts = this.tileSize;
-    const tileImg = assets.get('tiles');
+    const img = assets.get('tiles');
 
-    // Calculate visible tile range
     const startX = Math.max(0, Math.floor(camera.x / ts));
     const startY = Math.max(0, Math.floor(camera.y / ts));
-    const endX = Math.min(this.width, Math.ceil((camera.x + camera.viewWidth) / ts) + 1);
-    const endY = Math.min(this.height, Math.ceil((camera.y + camera.viewHeight) / ts) + 1);
+    const endX   = Math.min(this.width,  Math.ceil((camera.x + camera.viewWidth)  / ts) + 1);
+    const endY   = Math.min(this.height, Math.ceil((camera.y + camera.viewHeight) / ts) + 1);
 
     for (let ty = startY; ty < endY; ty++) {
+      const row = layer.data[ty];
+      if (!row) continue;
       for (let tx = startX; tx < endX; tx++) {
-        const tileId = layer.data[ty][tx];
-        if (tileId === 0) continue;
+        const id = row[tx];
+        if (id === 0) continue;
 
-        const screenX = tx * ts - camera.x;
-        const screenY = ty * ts - camera.y;
+        const sx = Math.floor(tx * ts - camera.x);
+        const sy = Math.floor(ty * ts - camera.y);
 
-        if (tileImg) {
-          // Sprite sheet: tiles are 32px wide, laid out horizontally by tileId
-          const srcX = tileId * ts;
-          ctx.drawImage(tileImg, srcX, 0, ts, ts, Math.floor(screenX), Math.floor(screenY), ts, ts);
+        if (img) {
+          ctx.drawImage(img, id * ts, 0, ts, ts, sx, sy, ts, ts);
         } else {
-          // Fallback procedural rendering
-          this.renderTileFallback(ctx, tileId, screenX, screenY, ts);
+          this._drawFallback(ctx, id, sx, sy, ts);
         }
       }
     }
   }
 
-  /**
-   * Procedural tile rendering fallback when no sprite sheet is loaded
-   */
-  renderTileFallback(ctx, tileId, x, y, ts) {
+  _drawFallback(ctx, id, x, y, ts) {
     const colors = {
-      1: '#4a7c59', // grass
-      2: '#2d5a27', // tree
-      3: '#7a6a50', // cliff
-      4: '#1a6b9a', // water
-      5: '#8B6914', // bridge
-      6: '#c4a96a', // path
+      1: '#3d7a47', 2: '#2d5a27', 3: '#6b5e4a',
+      4: '#0f5a8a', 5: '#8B6914', 6: '#b09060', 7: '#2a5a35',
     };
+    ctx.fillStyle = colors[id] || '#333';
+    ctx.fillRect(x, y, ts, ts);
 
-    ctx.fillStyle = colors[tileId] || '#333';
-    ctx.fillRect(Math.floor(x), Math.floor(y), ts, ts);
-
-    // Add visual detail
-    if (tileId === 1) {
-      // Grass texture
-      ctx.fillStyle = '#5a9c6c';
-      ctx.fillRect(Math.floor(x + 4), Math.floor(y + 6), 2, 4);
-      ctx.fillRect(Math.floor(x + 10), Math.floor(y + 4), 2, 5);
-      ctx.fillRect(Math.floor(x + 18), Math.floor(y + 8), 2, 4);
-      ctx.fillRect(Math.floor(x + 24), Math.floor(y + 5), 2, 5);
-    } else if (tileId === 2) {
-      // Tree: trunk + canopy
-      ctx.fillStyle = '#8B6914';
-      ctx.fillRect(Math.floor(x + 12), Math.floor(y + 18), 8, 14);
-      ctx.fillStyle = '#2d5a27';
-      ctx.fillRect(Math.floor(x + 4), Math.floor(y + 2), 24, 20);
-      ctx.fillStyle = '#3a7a35';
-      ctx.fillRect(Math.floor(x + 8), Math.floor(y + 6), 16, 14);
-    } else if (tileId === 3) {
-      // Cliff pattern
-      ctx.fillStyle = '#9a8a68';
-      for (let cy = 0; cy < 4; cy++) {
-        for (let cx = 0; cx < 4; cx++) {
-          if ((cx + cy) % 2 === 0) {
-            ctx.fillRect(Math.floor(x + cx * 8), Math.floor(y + cy * 8), 8, 8);
-          }
-        }
-      }
-    } else if (tileId === 4) {
-      // Water animation
-      const t = Date.now() / 1000;
-      ctx.fillStyle = '#2a8bc4';
-      ctx.fillRect(Math.floor(x + 2), Math.floor(y + 8 + Math.sin(t + x * 0.1) * 2), 28, 4);
-      ctx.fillRect(Math.floor(x + 4), Math.floor(y + 18 + Math.sin(t + x * 0.1 + 1) * 2), 24, 4);
-    } else if (tileId === 5) {
-      // Bridge planks over water
-      ctx.fillStyle = '#1a6b9a';
-      ctx.fillRect(Math.floor(x), Math.floor(y), ts, ts);
-      ctx.fillStyle = '#8B6914';
-      ctx.fillRect(Math.floor(x), Math.floor(y + 8), ts, 16);
-      ctx.fillStyle = '#a07820';
-      for (let b = 0; b < 4; b++) {
-        ctx.fillRect(Math.floor(x + b * 8), Math.floor(y + 10), 6, 12);
-      }
+    if (id === 1 || id === 7) {
+      ctx.fillStyle = id === 7 ? '#357a44' : '#4a9a58';
+      ctx.fillRect(x + 4, y + 6, 2, 4);
+      ctx.fillRect(x + 10, y + 4, 2, 5);
+      ctx.fillRect(x + 18, y + 8, 2, 4);
+      ctx.fillRect(x + 24, y + 5, 2, 5);
+    } else if (id === 2) {
+      ctx.fillStyle = '#5c3a1e'; ctx.fillRect(x + 12, y + 18, 8, 14);
+      ctx.fillStyle = '#2a6e2a'; ctx.fillRect(x + 4,  y + 2,  24, 18);
+      ctx.fillStyle = '#4aad4c'; ctx.fillRect(x + 8,  y + 6,  16, 12);
+    } else if (id === 4) {
+      ctx.fillStyle = '#1a7ab8';
+      ctx.fillRect(x + 2, y + 6, 12, 2);
+      ctx.fillRect(x + 18, y + 14, 10, 2);
+    } else if (id === 5) {
+      ctx.fillStyle = '#1a7ab8'; ctx.fillRect(x, y, ts, ts);
+      ctx.fillStyle = '#7a5220'; ctx.fillRect(x, y + 8, ts, 16);
+      ctx.fillStyle = '#9a6a2a';
+      for (let p = 0; p < 4; p++) ctx.fillRect(x, y + 9 + p * 4, ts, 3);
     }
   }
 
-  /**
-   * Get number of layers
-   */
-  get layerCount() {
-    return this.layers.length;
-  }
+  get layerCount() { return this.layers.length; }
 }

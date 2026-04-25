@@ -1,39 +1,60 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import HUD from '../src/ui/HUD';
+import HUD         from '../src/ui/HUD';
 import InventoryUI from '../src/ui/InventoryUI';
-import DialogueUI from '../src/ui/DialogueUI';
+import DialogueUI  from '../src/ui/DialogueUI';
+import WorldMap    from '../src/ui/WorldMap';
+import QuestLog    from '../src/ui/QuestLog';
+import AuthPanel   from '../src/ui/AuthPanel';
+import { isOnline } from '../src/systems/SupabaseService.js';
+
+const TILESIZE = 32;
 
 export default function GamePage() {
   const canvasRef = useRef(null);
-  const gameRef = useRef(null);
+  const gameRef   = useRef(null);
+  const sceneRef  = useRef(null);
 
-  const [stats, setStats] = useState({ hp: 100, maxHP: 100, energy: 50, maxEnergy: 50, time: '08:00' });
-  const [inventory, setInventory] = useState(null);
-  const [showInventory, setShowInventory] = useState(false);
-  const [nearItem, setNearItem] = useState(null);
-  const [nearNPC, setNearNPC] = useState(null);
-  const [dialogue, setDialogue] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(null);
+  // Core game state
+  const [stats,          setStats]          = useState({ hp:100, maxHP:100, energy:50, maxEnergy:50, time:'08:00', level:1, xp:0, xpToNext:100, attack:8, defense:0 });
+  const [inventory,      setInventory]      = useState(null);
+  const [showInventory,  setShowInventory]  = useState(false);
+  const [showMap,        setShowMap]        = useState(false);
+  const [nearItem,       setNearItem]       = useState(null);
+  const [nearNPC,        setNearNPC]        = useState(null);
+  const [dialogue,       setDialogue]       = useState(null);
+  const [loading,        setLoading]        = useState(true);
+  const [loadError,      setLoadError]      = useState(null);
+  const [quests,         setQuests]         = useState([]);
+  const [mapState,       setMapState]       = useState(null);
+  const [onlinePlayers,  setOnlinePlayers]  = useState(1);
 
-  const handleStatsUpdate = useCallback((newStats) => {
+  // Auth state
+  const [user,           setUser]           = useState(null);
+  const [showAuth,       setShowAuth]       = useState(false);
+
+  // Death state
+  const [isDead,         setIsDead]         = useState(false);
+
+  /* ── UI callbacks for GameScene ─────────────────────────────────── */
+
+  const handleStatsUpdate = useCallback((s) => {
     setStats({
-      hp: newStats.hp,
-      maxHP: newStats.maxHP,
-      energy: newStats.energy,
-      maxEnergy: newStats.maxEnergy,
-      time: newStats.time,
+      hp: s.hp, maxHP: s.maxHP,
+      energy: s.energy, maxEnergy: s.maxEnergy,
+      time: s.time, level: s.level || 1,
+      xp: s.xp || 0, xpToNext: s.xpToNext || 100,
+      attack: s.attack || 8, defense: s.defense || 0,
     });
-    if (newStats.inventory) {
-      setInventory({ ...newStats.inventory, slots: [...newStats.inventory.slots] });
-    }
+    if (s.inventory) setInventory({ ...s.inventory, slots: [...s.inventory.slots] });
+    if (s.quests)    setQuests(s.quests);
+    if (s.onlinePlayers !== undefined) setOnlinePlayers(s.onlinePlayers);
   }, []);
 
-  const handleNearItem = useCallback((item) => setNearItem(item), []);
-  const handleNearNPC = useCallback((npc) => setNearNPC(npc ? { name: npc.name } : null), []);
-  const handleDialogue = useCallback((dlg) => setDialogue(dlg ? {
+  const handleNearItem    = useCallback(item => setNearItem(item), []);
+  const handleNearNPC     = useCallback(npc  => setNearNPC(npc ? { name: npc.name } : null), []);
+  const handleDialogue    = useCallback(dlg  => setDialogue(dlg ? {
     npcName: dlg.currentNPC?.name,
     displayText: dlg.displayText,
     choices: dlg.choices,
@@ -41,178 +62,318 @@ export default function GamePage() {
     typingDone: dlg.typingDone,
   } : null), []);
 
+  const handleAuthChange  = useCallback(userData => {
+    setUser(userData);
+    if (userData) setShowAuth(false);
+  }, []);
+
+  const handleDeath       = useCallback(() => setIsDead(true),  []);
+  const handleRespawn     = useCallback(() => setIsDead(false), []);
+
+  /* ── Game init ──────────────────────────────────────────────────── */
+
   useEffect(() => {
     let game = null;
-
-    const initGame = async () => {
+    const init = async () => {
       try {
         const canvas = canvasRef.current;
         if (!canvas) return;
-
-        canvas.width = canvas.offsetWidth;
+        canvas.width  = canvas.offsetWidth;
         canvas.height = canvas.offsetHeight;
 
         const { Game } = await import('../src/Game.js');
         game = new Game(canvas, {
           onStatsUpdate: handleStatsUpdate,
-          onNearItem: handleNearItem,
-          onNearNPC: handleNearNPC,
-          onDialogue: handleDialogue,
+          onNearItem:    handleNearItem,
+          onNearNPC:     handleNearNPC,
+          onDialogue:    handleDialogue,
+          onAuthChange:  handleAuthChange,
+          onDeath:       handleDeath,
+          onRespawn:     handleRespawn,
         });
 
         await game.init();
         game.start();
-        gameRef.current = game;
+        gameRef.current  = game;
+        sceneRef.current = game.scene;
         setLoading(false);
       } catch (err) {
-        console.error('Game init error:', err);
+        console.error(err);
         setLoadError(err.message);
         setLoading(false);
       }
     };
+    init();
+    return () => game?.stop();
+  }, [handleStatsUpdate, handleNearItem, handleNearNPC, handleDialogue, handleAuthChange, handleDeath, handleRespawn]);
 
-    initGame();
-
-    return () => {
-      if (game) game.stop();
-    };
-  }, [handleStatsUpdate, handleNearItem, handleNearNPC, handleDialogue]);
+  /* ── Keyboard shortcuts ─────────────────────────────────────────── */
 
   useEffect(() => {
-    const handleKey = (e) => {
-      if (e.code === 'KeyI') setShowInventory(prev => !prev);
+    const onKey = e => {
+      if (e.code === 'KeyI') setShowInventory(v => !v);
+      if (e.code === 'KeyM') {
+        setShowMap(v => {
+          if (!v && sceneRef.current) {
+            const scene = sceneRef.current;
+            setMapState({
+              fog:       scene.fog,
+              playerPos: { x: scene.player.centerX, y: scene.player.centerY },
+              npcs:      scene.npcs.map(n => ({ name: n.name, x: n.centerX, y: n.centerY })),
+            });
+          }
+          return !v;
+        });
+      }
+      if (e.code === 'KeyL') setShowAuth(v => !v);
     };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const handleUseItem = (slotIndex) => gameRef.current?.useItem(slotIndex);
-  const handleDropItem = (slotIndex) => gameRef.current?.dropItem(slotIndex);
-  const handleSave = () => gameRef.current?.save();
-  const handleLoad = () => gameRef.current?.load();
+  /* ── Action proxies ─────────────────────────────────────────────── */
+
+  const handleUseItem     = i  => gameRef.current?.useItem(i);
+  const handleDropItem    = i  => gameRef.current?.dropItem(i);
+  const handleUnequipSlot = s  => gameRef.current?.unequipSlot(s);
+  const handleSave        = () => gameRef.current?.save();
+  const handleLoad        = () => gameRef.current?.load();
+  const handleLogin       = (email, pw) => gameRef.current?.login(email, pw);
+  const handleRegister    = (email, pw, un) => gameRef.current?.register(email, pw, un);
+  const handleLogout      = async () => { await gameRef.current?.logout(); setUser(null); };
+
+  /* ── Render ─────────────────────────────────────────────────────── */
 
   return (
     <div style={{
-      width: '100vw', height: '100vh', background: '#0a0a0a',
-      display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      fontFamily: 'monospace', userSelect: 'none',
+      width:'100vw', height:'100vh', background:'#0a0a0a',
+      display:'flex', flexDirection:'column', overflow:'hidden',
+      fontFamily:'monospace', userSelect:'none',
     }}>
+      {/* ── Title bar ─────────────────────────────────────────────── */}
       <div style={{
-        height: '36px', background: 'rgba(10,10,20,0.95)',
-        borderBottom: '1px solid #2a3a2a',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        height: 38, background: 'rgba(6,10,6,0.98)',
+        borderBottom: '1px solid #1a3a1a',
+        display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between',
         padding: '0 12px', flexShrink: 0, zIndex: 100,
+        gap: 8,
       }}>
-        <span style={{ color: '#7cbe7c', fontSize: '13px', fontWeight: 'bold', letterSpacing: '2px' }}>
-          ⚔ FOREST REALM RPG
+        <span style={{ color:'#7cbe7c', fontSize:13, fontWeight:'bold', letterSpacing:2, flexShrink:0 }}>
+          ⚔ FOREST REALM
         </span>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={handleSave} style={btnStyle('#2a4a2a', '#7cbe7c')}>💾 Save</button>
-          <button onClick={handleLoad} style={btnStyle('#2a2a4a', '#7c7cbe')}>📂 Load</button>
-          <button onClick={() => setShowInventory(v => !v)} style={btnStyle('#4a2a2a', '#be7c7c')}>
-            🎒 [I] Bag
+
+        <div style={{ display:'flex', gap:5, alignItems:'center', flexWrap:'wrap' }}>
+          {[
+            { label:'💾', title:'Save',      onClick: handleSave,               bg:'#1a3a1a', c:'#7cbe7c' },
+            { label:'📂', title:'Load',      onClick: handleLoad,               bg:'#1a1a3a', c:'#7c7cbe' },
+            { label:'🎒', title:'Bag [I]',   onClick:()=>setShowInventory(v=>!v), bg:'#2a1a1a', c:'#be7c7c' },
+            { label:'🗺', title:'Map [M]',   onClick:()=>{
+                if (sceneRef.current) {
+                  const s = sceneRef.current;
+                  setMapState({ fog:s.fog,
+                    playerPos:{x:s.player.centerX,y:s.player.centerY},
+                    npcs:s.npcs.map(n=>({name:n.name,x:n.centerX,y:n.centerY})) });
+                }
+                setShowMap(v=>!v);
+              }, bg:'#1a2a1a', c:'#7cbe8c' },
+          ].map(b => (
+            <TitleBtn key={b.title} {...b} />
+          ))}
+
+          {/* Auth toggle */}
+          <button
+            onClick={() => setShowAuth(v => !v)}
+            title={user ? user.username : 'Login / Register [L]'}
+            style={{
+              background: user ? '#1a3a2a' : '#2a1a0a',
+              border: `1px solid ${user ? '#3cbe6c' : '#aa6622'}66`,
+              borderRadius: 4, color: user ? '#7cbe7c' : '#cc9944',
+              cursor:'pointer', padding:'3px 8px', fontSize:10,
+              letterSpacing:1, fontFamily:'monospace',
+            }}
+          >
+            {user ? `🧙 ${user.username}` : '🔑 Login [L]'}
           </button>
         </div>
       </div>
 
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      {/* ── Game area ────────────────────────────────────────────────── */}
+      <div style={{ flex:1, position:'relative', overflow:'hidden' }}>
         <canvas
           ref={canvasRef}
-          style={{ width: '100%', height: '100%', display: 'block', imageRendering: 'pixelated' }}
+          style={{ width:'100%', height:'100%', display:'block', imageRendering:'pixelated' }}
         />
 
+        {/* Loading screen */}
         {loading && (
           <div style={{
-            position: 'absolute', inset: 0,
-            background: 'linear-gradient(135deg, #0a1a0a 0%, #0a0a1a 100%)',
-            display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', gap: '16px', color: '#7cbe7c', zIndex: 200,
+            position:'absolute', inset:0,
+            background:'linear-gradient(135deg,#0a1a0a,#0a0a1a)',
+            display:'flex', flexDirection:'column', alignItems:'center',
+            justifyContent:'center', gap:16, color:'#7cbe7c', zIndex:200,
           }}>
-            <div style={{ fontSize: '48px' }}>🌲</div>
-            <div style={{ fontSize: '20px', letterSpacing: '4px' }}>FOREST REALM</div>
-            <div style={{ fontSize: '12px', color: '#5a9a5a', letterSpacing: '2px' }}>Loading world...</div>
+            <div style={{ fontSize:52 }}>🌲</div>
+            <div style={{ fontSize:22, letterSpacing:4 }}>FOREST REALM</div>
+            <div style={{ fontSize:10, color:'#5a9a5a', letterSpacing:2 }}>
+              {isOnline ? '🌐 Connecting to server…' : '⚡ Starting offline…'}
+            </div>
             <LoadingBar />
+            <div style={{ fontSize:8, color:'#2a4a2a', marginTop:4 }}>
+              Combat · Multiplayer · Equipment · Quests
+            </div>
           </div>
         )}
 
         {loadError && (
           <div style={{
-            position: 'absolute', inset: 0, background: '#1a0a0a',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#ff6666', fontSize: '14px', zIndex: 200,
+            position:'absolute', inset:0, background:'#1a0a0a',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            color:'#ff6666', fontSize:13, zIndex:200, textAlign:'center', padding:20,
           }}>
-            Error: {loadError}
+            <div>
+              <div style={{ fontSize:24, marginBottom:12 }}>💥</div>
+              Error: {loadError}
+              <br/><br/>
+              <button onClick={()=>window.location.reload()} style={{
+                background:'#2a1a1a', border:'1px solid #ff6666', borderRadius:4,
+                color:'#ff6666', cursor:'pointer', padding:'6px 16px', fontSize:11,
+                fontFamily:'monospace',
+              }}>Reload</button>
+            </div>
           </div>
         )}
 
+        {/* HUD */}
         {!loading && <HUD stats={stats} />}
 
-        {!loading && !dialogue && (nearNPC || nearItem) && (
+        {/* Quest log */}
+        {!loading && quests.length > 0 && !showInventory && !showMap && !showAuth && (
+          <QuestLog quests={quests} />
+        )}
+
+        {/* Auth panel */}
+        {showAuth && (
           <div style={{
-            position: 'absolute', bottom: '80px', left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'rgba(0,0,0,0.8)', border: '1px solid #7cbe7c',
-            borderRadius: '4px', padding: '6px 14px',
-            color: '#7cbe7c', fontSize: '11px', letterSpacing: '1px', zIndex: 50,
+            position:'absolute', top:10, right:10, zIndex:120,
+          }}>
+            <AuthPanel
+              user={user}
+              isOnline={isOnline}
+              onLogin={handleLogin}
+              onRegister={handleRegister}
+              onLogout={handleLogout}
+            />
+          </div>
+        )}
+
+        {/* Interaction hint */}
+        {!loading && !dialogue && !showInventory && !showMap && !showAuth && !isDead && (nearNPC || nearItem) && (
+          <div style={{
+            position:'absolute', bottom:80, left:'50%',
+            transform:'translateX(-50%)',
+            background:'rgba(0,0,0,0.85)', border:'1px solid #7cbe7c',
+            borderRadius:4, padding:'6px 14px', color:'#7cbe7c',
+            fontSize:11, letterSpacing:1, zIndex:50,
           }}>
             {nearNPC ? `[E] Talk to ${nearNPC.name}` : '[E] Pick up item'}
           </div>
         )}
 
-        {dialogue && <DialogueUI dialogue={dialogue} />}
+        {/* Dialogue */}
+        {dialogue && !isDead && <DialogueUI dialogue={dialogue} />}
 
+        {/* Inventory */}
         {showInventory && inventory && (
           <InventoryUI
             inventory={inventory}
             onClose={() => setShowInventory(false)}
             onUse={handleUseItem}
             onDrop={handleDropItem}
+            onUnequip={handleUnequipSlot}
           />
         )}
 
-        {!loading && (
+        {/* World map */}
+        {showMap && mapState && (
+          <WorldMap
+            fog={mapState.fog}
+            playerPos={mapState.playerPos}
+            npcs={mapState.npcs}
+            tileSize={TILESIZE}
+            onClose={() => setShowMap(false)}
+          />
+        )}
+
+        {/* Controls hint */}
+        {!loading && !showInventory && !showMap && !showAuth && (
           <div style={{
-            position: 'absolute', bottom: '12px', right: '12px',
-            background: 'rgba(0,0,0,0.65)', border: '1px solid #333',
-            borderRadius: '4px', padding: '8px 10px',
-            color: '#666', fontSize: '9px', lineHeight: '1.7',
-            letterSpacing: '1px', zIndex: 50,
+            position:'absolute', bottom:12, right:12,
+            background:'rgba(0,0,0,0.65)', border:'1px solid #1a2a1a',
+            borderRadius:4, padding:'8px 10px', color:'#555',
+            fontSize:9, lineHeight:1.8, letterSpacing:1, zIndex:50,
           }}>
             WASD / ↑↓←→ &nbsp;Move<br/>
+            SPACE &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Attack<br/>
             E &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Interact<br/>
-            SPACE &nbsp;&nbsp;&nbsp;&nbsp;Attack<br/>
             I &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Inventory<br/>
-            ↑↓ in dialog Select
+            M &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;World Map<br/>
+            L &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Login Panel
+          </div>
+        )}
+
+        {/* Online indicator */}
+        {!loading && isOnline && (
+          <div style={{
+            position:'absolute', top:10, left:'50%', transform:'translateX(-50%)',
+            background:'rgba(0,0,0,0.6)', border:'1px solid #1a4a2a',
+            borderRadius:10, padding:'2px 10px',
+            color:'#44cc88', fontSize:9, letterSpacing:1, zIndex:50,
+          }}>
+            🌐 {onlinePlayers} player{onlinePlayers !== 1 ? 's' : ''} online
           </div>
         )}
       </div>
 
       <style>{`
         * { box-sizing: border-box; }
-        button:hover { filter: brightness(1.4); transform: translateY(-1px); }
-        button { transition: all 0.1s; }
+        input::placeholder { color: #2a4a2a; }
+        input:focus { border-color: #4a8a4a !important; }
       `}</style>
     </div>
   );
 }
 
-function btnStyle(bg, color) {
-  return {
-    background: bg, border: `1px solid ${color}55`,
-    borderRadius: '3px', color: color, fontSize: '10px',
-    padding: '3px 8px', cursor: 'pointer', letterSpacing: '1px',
-  };
+function TitleBtn({ label, title, onClick, bg, c }) {
+  return (
+    <button
+      onClick={onClick} title={title}
+      style={{
+        background:bg, border:`1px solid ${c}44`,
+        borderRadius:4, color:c, fontSize:11,
+        padding:'3px 8px', cursor:'pointer',
+        letterSpacing:1, transition:'filter 0.1s',
+        fontFamily:'monospace',
+      }}
+      onMouseOver={e=>e.currentTarget.style.filter='brightness(1.4)'}
+      onMouseOut={e=>e.currentTarget.style.filter=''}
+    >{label}</button>
+  );
 }
 
 function LoadingBar() {
-  const [width, setWidth] = useState(0);
+  const [w, setW] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setWidth(w => Math.min(100, w + Math.random() * 18)), 100);
+    const id = setInterval(() => setW(v => Math.min(100, v + Math.random() * 13)), 90);
     return () => clearInterval(id);
   }, []);
   return (
-    <div style={{ width: '200px', height: '4px', background: '#1a2a1a', borderRadius: '2px', overflow: 'hidden' }}>
-      <div style={{ width: `${width}%`, height: '100%', background: 'linear-gradient(90deg, #3a7a3a, #7cbe7c)', borderRadius: '2px' }} />
+    <div style={{ width:220, height:4, background:'#1a2a1a', borderRadius:2, overflow:'hidden' }}>
+      <div style={{
+        width:`${w}%`, height:'100%',
+        background:'linear-gradient(90deg,#3a7a3a,#7cbe7c)',
+        transition:'width 0.08s', borderRadius:2,
+      }} />
     </div>
   );
 }

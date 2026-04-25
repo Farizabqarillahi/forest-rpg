@@ -1,58 +1,46 @@
 /**
- * DialogueSystem - Manages NPC dialogue flow, choices, and typing effect
+ * DialogueSystem - Manages NPC dialogue flow with typing effect and choices
  */
 export class DialogueSystem {
   constructor() {
-    this.active = false;
-    this.currentNPC = null;
-    this.currentNode = null;
-    this.displayText = '';
-    this.fullText = '';
-    this.typeTimer = 0;
-    this.typeSpeed = 40; // ms per character
-    this.typingDone = false;
-    this.choices = [];
-    this.selectedChoice = 0;
+    this.active          = false;
+    this.currentNPC      = null;
+    this.currentNode     = null;
+    this.displayText     = '';
+    this.fullText        = '';
+    this.typeTimer       = 0;
+    this.typeSpeed       = 35; // ms per char
+    this.typingDone      = false;
+    this.choices         = [];
+    this.selectedChoice  = 0;
     this.onActionCallback = null;
+    this._tree           = null;
   }
 
-  /**
-   * Start dialogue with an NPC
-   */
   startDialogue(npc, inventorySystem, onAction) {
-    this.active = true;
-    this.currentNPC = npc;
+    this.active          = true;
+    this.currentNPC      = npc;
     this.onActionCallback = onAction;
 
-    // Determine which dialogue node to start at
+    // Choose starting node based on NPC memory / quest state
     let startNode = 'initial';
     if (npc.memory.hasSpokenBefore) startNode = 'repeat';
-    if (npc.questState === 'active') startNode = 'quest_check';
-
-    // Check if player has enough wood for quest completion
-    if (npc.questState === 'active' && inventorySystem && inventorySystem.hasItem('wood', 3)) {
-      startNode = 'quest_complete';
-    }
 
     npc.memory.hasSpokenBefore = true;
-    this.showNode(npc.dialogueTree[startNode], npc.dialogueTree);
+    const tree = npc.dialogueTree || {};
+    this._tree = tree;
+    this._showNode(tree[startNode] || tree['initial']);
   }
 
-  showNode(node, tree) {
-    if (!node) {
-      this.endDialogue();
-      return;
-    }
-    this.currentNode = node;
-    this.fullText = node.text;
-    this.displayText = '';
-    this.typeTimer = 0;
-    this.typingDone = false;
-
-    // Process choices - filter out ones with unmet requirements
-    this.choices = (node.choices || []).filter(() => true);
+  _showNode(node) {
+    if (!node) { this.endDialogue(); return; }
+    this.currentNode  = node;
+    this.fullText     = node.text || '';
+    this.displayText  = '';
+    this.typeTimer    = 0;
+    this.typingDone   = false;
+    this.choices      = node.choices || [];
     this.selectedChoice = 0;
-    this._tree = tree;
   }
 
   update(deltaTime, input) {
@@ -61,65 +49,54 @@ export class DialogueSystem {
     // Typing effect
     if (!this.typingDone) {
       this.typeTimer += deltaTime * 1000;
-      const charsToShow = Math.floor(this.typeTimer / this.typeSpeed);
-      if (charsToShow >= this.fullText.length) {
+      const chars = Math.floor(this.typeTimer / this.typeSpeed);
+      if (chars >= this.fullText.length) {
         this.displayText = this.fullText;
-        this.typingDone = true;
+        this.typingDone  = true;
       } else {
-        this.displayText = this.fullText.substring(0, charsToShow);
+        this.displayText = this.fullText.slice(0, chars);
       }
     }
 
-    // Skip to full text on interact press
     if (input.interact) {
       if (!this.typingDone) {
+        // Skip to full text
         this.displayText = this.fullText;
-        this.typingDone = true;
+        this.typingDone  = true;
       } else if (this.choices.length === 0) {
-        // No choices - close dialogue
         this.endDialogue();
       } else {
-        // Confirm selected choice
-        this.selectChoice(this.selectedChoice);
+        this._confirmChoice();
       }
     }
 
-    // Navigate choices
+    // Navigate choices with arrow keys
     if (this.typingDone && this.choices.length > 0) {
-      if (input.wasJustPressed('ArrowUp') || input.wasJustPressed('KeyW')) {
-        this.selectedChoice = (this.selectedChoice - 1 + this.choices.length) % this.choices.length;
-      }
-      if (input.wasJustPressed('ArrowDown') || input.wasJustPressed('KeyS')) {
-        this.selectedChoice = (this.selectedChoice + 1) % this.choices.length;
-      }
+      if (input.wasJustPressed && input.wasJustPressed('ArrowUp'))   this.selectedChoice = (this.selectedChoice - 1 + this.choices.length) % this.choices.length;
+      if (input.wasJustPressed && input.wasJustPressed('ArrowDown')) this.selectedChoice = (this.selectedChoice + 1) % this.choices.length;
     }
   }
 
-  selectChoice(index) {
-    const choice = this.choices[index];
-    if (!choice) {
-      this.endDialogue();
-      return;
-    }
+  _confirmChoice() {
+    const choice = this.choices[this.selectedChoice];
+    if (!choice) { this.endDialogue(); return; }
 
-    // Trigger action if any
     if (choice.action && this.onActionCallback) {
       this.onActionCallback(choice.action, this.currentNPC);
     }
 
-    // Navigate to next node
     if (choice.next && this._tree[choice.next]) {
-      this.showNode(this._tree[choice.next], this._tree);
+      this._showNode(this._tree[choice.next]);
     } else {
       this.endDialogue();
     }
   }
 
   endDialogue() {
-    this.active = false;
-    this.currentNPC = null;
+    this.active      = false;
+    this.currentNPC  = null;
     this.currentNode = null;
     this.displayText = '';
-    this.choices = [];
+    this.choices     = [];
   }
 }

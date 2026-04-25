@@ -1,167 +1,92 @@
 {
-  "width": 40,
-  "height": 30,
+  "width": 64,
+  "height": 48,
   "tileSize": 32,
+  "regions": [
+    { "id": "village",    "name": "Village",      "x": 5,  "y": 5,  "w": 14, "h": 12, "biome": "camp",       "itemSpawnCount": 4, "color": "#7cbe7c" },
+    { "id": "forest_w",   "name": "West Forest",  "x": 0,  "y": 0,  "w": 8,  "h": 48, "biome": "forest",     "itemSpawnCount": 8, "color": "#2d5a27" },
+    { "id": "forest_e",   "name": "East Forest",  "x": 40, "y": 0,  "w": 24, "h": 48, "biome": "forest",     "itemSpawnCount": 8, "color": "#2d5a27" },
+    { "id": "deep_forest","name": "Deep Forest",  "x": 8,  "y": 0,  "w": 16, "h": 8,  "biome": "deepForest", "itemSpawnCount": 5, "color": "#1a3a14" },
+    { "id": "river",      "name": "Riverside",    "x": 22, "y": 10, "w": 8,  "h": 28, "biome": "river",      "itemSpawnCount": 6, "color": "#1a6b9a" },
+    { "id": "ruins",      "name": "Ancient Ruins","x": 44, "y": 18, "w": 14, "h": 14, "biome": "ruins",      "itemSpawnCount": 5, "color": "#9a8a6e" },
+    { "id": "cliff",      "name": "Stone Cliffs", "x": 8,  "y": 36, "w": 20, "h": 12, "biome": "cliff",      "itemSpawnCount": 4, "color": "#7a6a50" },
+    { "id": "camp",       "name": "Old Camp",     "x": 30, "y": 36, "w": 14, "h": 12, "biome": "camp",       "itemSpawnCount": 4, "color": "#8B6914" }
+  ],
   "layers": [
     {
       "name": "ground",
       "zIndex": 0,
-      "data": [
-        [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,5,5,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,5,5,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,4,4,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3],
-        [3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3]
-      ]
+      "data": []
     },
     {
       "name": "objects",
       "zIndex": 1,
-      "data": [
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,2,2,0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,2,0,0,0,0,0,2,2,0,0],
-        [0,2,2,0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,2,0,0,0,0,0,2,2,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0],
-        [0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0],
-        [0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0],
-        [0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0,0,0,0,0,0,0],
-        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-      ]
+      "data": []
     }
   ],
-  "collisionMap": [
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,1,1,0,1],
-    [1,0,0,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,1,1,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1],
-    [1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1],
-    [1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1],
-    [1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-  ],
+  "collisionData": "procedural",
   "npcs": [
     {
       "id": "elder",
       "name": "Elder Mira",
-      "x": 10,
-      "y": 10,
+      "role": "quest_giver",
+      "x": 12, "y": 10,
       "sprite": "npc_elder",
       "schedule": [
-        { "startHour": 6, "endHour": 12, "behavior": "patrol", "path": [[10,10],[15,10],[15,15],[10,15]] },
-        { "startHour": 12, "endHour": 18, "behavior": "idle", "position": [20, 17] },
-        { "startHour": 18, "endHour": 24, "behavior": "idle", "position": [10, 10] }
+        { "startHour": 6,  "endHour": 12, "behavior": "patrol", "path": [[12,10],[16,10],[16,14],[12,14]] },
+        { "startHour": 12, "endHour": 18, "behavior": "idle",   "position": [14, 12] },
+        { "startHour": 18, "endHour": 24, "behavior": "idle",   "position": [12, 10] },
+        { "startHour": 0,  "endHour": 6,  "behavior": "idle",   "position": [12, 10] }
       ],
       "dialogue": {
         "initial": {
-          "text": "Greetings, traveler! Our village is in need. A great wolf has been troubling us.",
+          "text": "Greetings, traveler! Our village is threatened by wolves and restless spirits. Will you help us?",
           "choices": [
-            { "text": "How can I help?", "next": "quest_offer" },
+            { "text": "I'll help! What do you need?", "next": "quest_menu" },
+            { "text": "Tell me about this place.", "next": "lore" },
             { "text": "I'll be on my way.", "next": "farewell" }
           ]
         },
-        "quest_offer": {
-          "text": "We need wood to repair our fences. Can you bring me 3 pieces of wood from the forest?",
+        "quest_menu": {
+          "text": "We have two urgent needs. The fences need repair — I need 3 pieces of wood. And spirits haunt the ruins to the east.",
           "choices": [
-            { "text": "I'll gather the wood!", "next": "quest_accepted", "action": "start_quest" },
+            { "text": "I'll gather the wood.", "next": "quest_wood_accept", "action": "start_quest_gather_wood" },
+            { "text": "I'll deal with the spirits.", "next": "quest_spirit_accept", "action": "start_quest_spirit_hunt" },
             { "text": "Maybe later.", "next": "farewell" }
           ]
         },
-        "quest_accepted": {
-          "text": "Wonderful! Gather 3 pieces of wood and return to me. The trees to the south drop wood when you approach.",
-          "choices": [
-            { "text": "I'll get right on it.", "next": null }
-          ]
+        "quest_wood_accept": {
+          "text": "Bless you! Gather 3 pieces of wood from the forest and return to me.",
+          "choices": [{ "text": "On my way!", "next": null }]
+        },
+        "quest_spirit_accept": {
+          "text": "Be careful — the spirits are powerful. Head east past the river to the ruins. Banish 2 of them.",
+          "choices": [{ "text": "I'll return victorious.", "next": null }]
+        },
+        "lore": {
+          "text": "This forest has stood for centuries. The river separates our village from the eastern wilds. Strange spirits appeared after treasure hunters disturbed the old ruins.",
+          "choices": [{ "text": "Interesting. Thank you.", "next": "farewell" }]
         },
         "quest_check": {
-          "text": "Have you gathered the wood yet? Our fences need repair urgently!",
+          "text": "Have you gathered the wood? Our fences won't hold much longer!",
           "choices": [
-            { "text": "Not yet, I'm working on it.", "next": "farewell" }
+            { "text": "Not yet...", "next": "farewell" },
+            { "text": "I have 3 wood!", "next": "quest_wood_complete", "action": "complete_quest_gather_wood" }
           ]
         },
-        "quest_complete": {
-          "text": "Amazing! You've brought the wood! Thank you, brave traveler. Take this health potion as reward!",
-          "choices": [
-            { "text": "Happy to help!", "next": null, "action": "complete_quest" }
-          ]
+        "quest_wood_complete": {
+          "text": "Wonderful! The village is safer now. Take these potions as thanks, brave soul!",
+          "choices": [{ "text": "Happy to help!", "next": null }]
         },
         "farewell": {
-          "text": "Safe travels, friend.",
+          "text": "Safe travels, and be wary of wolves after dark.",
           "choices": []
         },
         "repeat": {
-          "text": "Ah, you again! Have you made progress gathering the wood?",
+          "text": "Back again? Any progress on the tasks I gave you?",
           "choices": [
-            { "text": "Almost there!", "next": "farewell" },
-            { "text": "I have 3 wood pieces!", "next": "quest_complete", "requires": { "item": "wood", "count": 3 } }
+            { "text": "Still working on it.", "next": "farewell" },
+            { "text": "I have 3 wood!", "next": "quest_wood_complete", "action": "complete_quest_gather_wood" }
           ]
         }
       }
@@ -169,46 +94,115 @@
     {
       "id": "merchant",
       "name": "Finn the Merchant",
-      "x": 28,
-      "y": 8,
+      "role": "merchant",
+      "x": 16, "y": 8,
       "sprite": "npc_merchant",
       "schedule": [
-        { "startHour": 8, "endHour": 20, "behavior": "patrol", "path": [[28,8],[32,8],[32,12],[28,12]] },
-        { "startHour": 20, "endHour": 24, "behavior": "idle", "position": [28, 8] },
-        { "startHour": 0, "endHour": 8, "behavior": "idle", "position": [28, 8] }
+        { "startHour": 7,  "endHour": 20, "behavior": "patrol", "path": [[16,8],[18,8],[18,12],[16,12]] },
+        { "startHour": 20, "endHour": 24, "behavior": "idle",   "position": [16, 9] },
+        { "startHour": 0,  "endHour": 7,  "behavior": "idle",   "position": [16, 9] }
       ],
       "dialogue": {
         "initial": {
-          "text": "Ho there! Finn's trading post — best deals in the forest! Looking to buy or trade?",
+          "text": "Finn's trading post — best deals in the forest! I buy wolf fangs for good gear. Got 3 wolf fangs? I'll give you a fine amulet!",
           "choices": [
-            { "text": "What do you have?", "next": "shop" },
-            { "text": "Nothing today.", "next": "farewell" }
+            { "text": "I have 3 wolf fangs!", "next": "trade_fangs", "action": "start_quest_wolf_fangs" },
+            { "text": "What's your secret stock?", "next": "shop" },
+            { "text": "Just browsing.", "next": "farewell" }
           ]
         },
         "shop": {
-          "text": "I've got potions and supplies. A health potion will cost you 2 wood pieces — trade of the forest!",
-          "choices": [
-            { "text": "Sounds good, bye!", "next": "farewell" }
-          ]
+          "text": "My finest wares: potions, energy tonics, and sometimes rare equipment. Check your inventory for anything I may have slipped in!",
+          "choices": [{ "text": "Thanks!", "next": "farewell" }]
+        },
+        "trade_fangs": {
+          "text": "Three fangs? Excellent quality! Here's a Wolf Amulet — it channels the wolf's power.",
+          "choices": [{ "text": "Amazing, thank you!", "next": null, "action": "complete_quest_wolf_fangs" }]
         },
         "farewell": {
-          "text": "Come back anytime, friend!",
+          "text": "Come back soon! Prices won't stay this good forever!",
           "choices": []
         },
         "repeat": {
-          "text": "Back again? Can't stay away from the best deals in the forest!",
+          "text": "Back for more deals? The wolf fang offer still stands!",
           "choices": [
-            { "text": "Haha, true! Goodbye.", "next": "farewell" }
+            { "text": "I have 3 wolf fangs!", "next": "trade_fangs", "action": "complete_quest_wolf_fangs" },
+            { "text": "Just passing through.", "next": "farewell" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "guard",
+      "name": "Captain Bren",
+      "role": "guard",
+      "x": 8, "y": 12,
+      "sprite": "npc_guard",
+      "schedule": [
+        { "startHour": 0,  "endHour": 24, "behavior": "patrol", "path": [[8,12],[12,12],[12,8],[8,8]] }
+      ],
+      "dialogue": {
+        "initial": {
+          "text": "Halt! ... Oh, a traveler. Sorry. Tensions are high — slimes to the north, wolves everywhere. I'm posting bounties.",
+          "choices": [
+            { "text": "I'll take the slime bounty.", "next": "slime_quest", "action": "start_quest_slay_slimes" },
+            { "text": "What about the wolves?", "next": "wolf_quest", "action": "start_quest_slay_wolves" },
+            { "text": "Stay safe, Captain.", "next": "farewell" }
+          ]
+        },
+        "slime_quest": {
+          "text": "Kill 3 slimes to the north and west. They're slow but their gel is corrosive. Leather armor won't hurt.",
+          "choices": [{ "text": "Consider it done.", "next": null }]
+        },
+        "wolf_quest": {
+          "text": "Wolves patrol the deep forest and eastern reaches. Take down 3 of them. A Silver Sword is your reward.",
+          "choices": [{ "text": "I'll bring back proof.", "next": null }]
+        },
+        "farewell": {
+          "text": "Watch your back out there.",
+          "choices": []
+        },
+        "repeat": {
+          "text": "How's the hunting going? Those beasts won't kill themselves.",
+          "choices": [{ "text": "Making progress.", "next": "farewell" }]
+        }
+      }
+    },
+    {
+      "id": "healer",
+      "name": "Sage Lyra",
+      "role": "healer",
+      "x": 10, "y": 14,
+      "sprite": "npc_healer",
+      "schedule": [
+        { "startHour": 6,  "endHour": 20, "behavior": "idle", "position": [10, 14] },
+        { "startHour": 20, "endHour": 6,  "behavior": "idle", "position": [10, 14] }
+      ],
+      "dialogue": {
+        "initial": {
+          "text": "Welcome, weary one. I can restore your vitality. Give me a herb and I'll heal you fully.",
+          "choices": [
+            { "text": "Heal me (costs 1 Herb).", "next": "heal_done", "action": "heal_player" },
+            { "text": "No thanks, I'm fine.", "next": "farewell" }
+          ]
+        },
+        "heal_done": {
+          "text": "There — your wounds are mended. Come back anytime the forest tests you.",
+          "choices": []
+        },
+        "farewell": {
+          "text": "May the forest light guide you.",
+          "choices": []
+        },
+        "repeat": {
+          "text": "Back already? The forest can be brutal. Another herb and I'll patch you up.",
+          "choices": [
+            { "text": "Please heal me (1 Herb).", "next": "heal_done", "action": "heal_player" },
+            { "text": "I'm alright.", "next": "farewell" }
           ]
         }
       }
     }
   ],
-  "items": [
-    { "id": "sword", "type": "equipment", "name": "Iron Sword", "x": 15, "y": 20 },
-    { "id": "potion", "type": "consumable", "name": "Health Potion", "x": 25, "y": 12 },
-    { "id": "wood", "type": "material", "name": "Wood", "x": 8, "y": 22 },
-    { "id": "wood", "type": "material", "name": "Wood", "x": 30, "y": 18 },
-    { "id": "stone", "type": "material", "name": "Stone", "x": 12, "y": 6 }
-  ]
+  "items": []
 }
