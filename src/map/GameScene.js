@@ -1,9 +1,6 @@
 /**
- * GameScene - Extended with:
- *  - DeathSystem (player death/respawn)
- *  - NetworkSync (debounced Supabase saves)
- *  - MultiplayerSystem (realtime position broadcast)
- *  - Fixed enemy AI (reaction delay, aggro radius, speed clamp)
+ * GameScene - Complete orchestrator with all systems integrated:
+ * combat, enemies, safe zones, chat, multiplayer, death, equipment, quests.
  */
 import { Camera }            from '../engine/Camera.js';
 import { Renderer }          from '../engine/Renderer.js';
@@ -19,6 +16,9 @@ import { MapFogSystem }      from '../systems/MapFogSystem.js';
 import { DeathSystem }       from '../systems/DeathSystem.js';
 import { NetworkSync }       from '../systems/NetworkSync.js';
 import { MultiplayerSystem } from '../systems/MultiplayerSystem.js';
+import { ChatSystem }        from '../systems/ChatSystem.js';
+import { SafeZoneSystem }    from '../systems/SafeZoneSystem.js';
+import { InputLockSystem }   from '../systems/InputLockSystem.js';
 import { Player }            from '../entities/Player.js';
 import { NPC }               from '../entities/NPC.js';
 import { WorldItem }         from '../entities/Item.js';
@@ -31,7 +31,6 @@ export class GameScene {
     this.assets = assets;
     this.ui     = uiCallbacks;
 
-    // Build procedural world
     const procMap = new ProceduralMap(rawMapData);
     this.mapData  = procMap.toMapData(rawMapData);
     this.tilemap  = new Tilemap(this.mapData);
@@ -40,7 +39,7 @@ export class GameScene {
     this.camera   = new Camera(canvas.width, canvas.height,
       this.tilemap.worldWidth, this.tilemap.worldHeight);
 
-    // Core engine systems
+    // Core systems
     this.collision   = new CollisionSystem(this.mapData);
     this.pathfinding = new Pathfinding(this.mapData.collisionMap, this.mapData.tileSize);
     this.dialogue    = new DialogueSystem();
@@ -49,61 +48,64 @@ export class GameScene {
     this.fog         = new MapFogSystem(this.mapData.width, this.mapData.height);
 
     // Spawn point
-    const startTile  = this._findStartTile();
-    this.spawnX      = startTile.x * 32 + 8;
-    this.spawnY      = startTile.y * 32 + 8;
+    const startTile = this._findStartTile();
+    this.spawnX     = startTile.x * 32 + 8;
+    this.spawnY     = startTile.y * 32 + 8;
+
+    // Safe zone — village area must be enemy-free
+    this.safeZone = new SafeZoneSystem();
+    this.safeZone.addTileZone(5, 5, 14, 12, 2, this.mapData.tileSize, 'village');
 
     // Player
     this.player = new Player(this.spawnX, this.spawnY);
     this.player.defense     = 0;
     this.player.attackRange = 28;
     this.player.energyRegen = 5;
-
     this.equipment = new EquipmentSystem(this.player);
     this.equipment.recalculate();
 
-    // Enemy AI
+    // Enemy AI (uses SafeZoneSystem + EnemySpawnSystem internally)
     this.enemyAI = new EnemyAISystem(
-      this.mapData, this.mapData.collisionMap, this.mapData.tileSize);
+      this.mapData, this.mapData.collisionMap, this.mapData.tileSize,
+      this.safeZone, this.spawnX, this.spawnY
+    );
 
     // Item spawner
-    this.spawner = new WorldItemSpawner(this.mapData);
-
+    this.spawner    = new WorldItemSpawner(this.mapData);
     this.npcs       = [];
     this.worldItems = [];
     this.notifications = [];
 
-    // Player XP / level
+    // XP / level
     this.playerXP    = 0;
     this.playerLevel = 1;
     this.xpToNext    = 100;
 
     // Time
-    this.gameTimeSeconds       = 8 * 3600;
+    this.gameTimeSeconds        = 8 * 3600;
     this.realSecondsPerGameHour = 30;
 
     // Death system
     this.death = new DeathSystem(this.spawnX, this.spawnY);
     this.death.onDeath   = (info) => {
-      const penalty = info?.penalty ?? 0;
-      this._deathMessage = penalty > 0
-        ? `You lost ${penalty} gold coin${penalty !== 1 ? 's' : ''}.`
-        : 'No gold lost.';
-      this.ui.onDeath?.({ penalty, message: this._deathMessage });
+      const p = info?.penalty ?? 0;
+      this._deathMessage = p > 0 ? `Lost ${p} gold coin${p !== 1 ? 's' : ''}.` : 'No gold lost.';
+      this.ui.onDeath?.({ penalty: p, message: this._deathMessage });
     };
-    this.death.onRespawn = () => { this.ui.onRespawn?.(); };
-    this._deathMessage = 'Respawning...';
+    this.death.onRespawn = () => this.ui.onRespawn?.();
+    this._deathMessage   = 'Respawning...';
 
-    // Network systems (inactive until login)
-    this.networkSync  = new NetworkSync();
-    this.multiplayer  = new MultiplayerSystem();
+    // Network
+    this.networkSync = new NetworkSync();
+    this.multiplayer = new MultiplayerSystem();
+    this.chat        = new ChatSystem(this.multiplayer);
+    this.multiplayer.chatSystem = this.chat; // wire chat events
 
     // Attack swing tracking
     this._prevAttacking = false;
 
     this._initNPCs();
 
-    // Initial item spawns
     const initialItems = this.spawner.update(0, []);
     this.worldItems.push(...initialItems);
 
@@ -121,51 +123,51 @@ export class GameScene {
   }
 
   _initNPCs() {
-    for (const npcData of this.mapData.npcs || []) {
-      this.npcs.push(new NPC(npcData, this.pathfinding));
-    }
+    for (const d of this.mapData.npcs || []) this.npcs.push(new NPC(d, this.pathfinding));
   }
 
-  /* ── Auth / multiplayer bindings ────────────────────────────────── */
+  /* ── Auth binding ───────────────────────────────────────────────── */
 
-  /** Called by Game.js after successful login */
   async bindUser(userId, username, savedData) {
     this.networkSync.bind(userId, username);
+    this.chat.bind(userId, username);
     await this.multiplayer.connect(userId, username);
 
-    // Restore saved state from DB if available
-    if (savedData) {
-      if (savedData.player) this.player.deserialize(savedData.player);
-      if (savedData.inventory) this.player.inventory.deserialize(savedData.inventory);
-      if (savedData.equipped)  this.player.inventory.equipped = { ...savedData.equipped };
+    if (savedData?.player) {
+      this.player.deserialize(savedData.player);
+      if (savedData.player.inventory) this.player.inventory.deserialize(savedData.player.inventory);
+      if (savedData.player.inventory?.equipped)
+        this.player.inventory.equipped = { ...savedData.player.inventory.equipped };
       this.equipment.recalculate();
       this.camera.snapTo(this.player.centerX, this.player.centerY);
     }
   }
 
-  /** Called by Game.js on logout */
   async unbindUser() {
     await this.networkSync.flushNow(this.player);
     await this.multiplayer.disconnect();
     this.networkSync.unbind();
+    this.chat.unbind();
   }
 
-  /* ── Computed props ─────────────────────────────────────────────── */
+  /* ── Chat proxy ─────────────────────────────────────────────────── */
+  sendChat(text) { this.chat.send(text); }
 
-  get gameHour()   { return Math.floor((this.gameTimeSeconds / 3600) % 24); }
+  /* ── Computed ───────────────────────────────────────────────────── */
+
+  get gameHour() { return Math.floor((this.gameTimeSeconds / 3600) % 24); }
   get timeString() {
     const h = this.gameHour.toString().padStart(2, '0');
     const m = Math.floor((this.gameTimeSeconds % 3600) / 60).toString().padStart(2, '0');
     return `${h}:${m}`;
   }
-
   getDayNightTint() {
     const h = this.gameHour;
-    if (h >= 6  && h < 8)  return { color: '#ff8800', alpha: 0.15 };
-    if (h >= 8  && h < 17) return { color: '#fff',    alpha: 0 };
-    if (h >= 17 && h < 19) return { color: '#ff6600', alpha: 0.2 };
-    if (h >= 19 && h < 21) return { color: '#220066', alpha: 0.3 };
-    return { color: '#000022', alpha: 0.55 };
+    if (h >= 6  && h < 8)  return { color:'#ff8800', alpha:0.15 };
+    if (h >= 8  && h < 17) return { color:'#fff',    alpha:0 };
+    if (h >= 17 && h < 19) return { color:'#ff6600', alpha:0.2 };
+    if (h >= 19 && h < 21) return { color:'#220066', alpha:0.3 };
+    return { color:'#000022', alpha:0.55 };
   }
 
   /* ══════════════════════════════════════════════════════════════════
@@ -175,102 +177,83 @@ export class GameScene {
   update(deltaTime, input) {
     this.gameTimeSeconds += deltaTime * (3600 / this.realSecondsPerGameHour);
 
-    // Death system update (drives fade + respawn timer, blocks input)
+    // Death system
     this.death.update(deltaTime, this.player);
 
-    // Network sync tick (debounced DB saves)
+    // Network
     this.networkSync.tick(deltaTime, this.player);
-
-    // Multiplayer broadcast + remote player interpolation
     this.multiplayer.update(deltaTime, this.player);
+    this.chat.update(deltaTime);
 
-    // Fog of war
+    // Fog
     const ptx = Math.floor(this.player.centerX / this.mapData.tileSize);
     const pty = Math.floor(this.player.centerY / this.mapData.tileSize);
     this.fog.updateExploration(ptx, pty);
 
-    // Block game input while dead/respawning or in dialogue
     const inputBlocked = this.death.blocksInput;
 
+    // Dialogue (only when not dead and not otherwise locked)
     if (this.dialogue.active && !inputBlocked) {
+      InputLockSystem.lock('dialogue');
       this.dialogue.update(deltaTime, input);
       this.player.state.setState('interacting');
       this.ui.onDialogue(this.dialogue);
       input.flush();
-      return;
+    } else {
+      InputLockSystem.unlock('dialogue');
+      if (!this.dialogue.active && this.player.state.is('interacting') && !inputBlocked) {
+        this.player.state.setState('idle');
+      }
+      this.ui.onDialogue(null);
     }
-    if (!this.dialogue.active && this.player.state.is('interacting') && !inputBlocked) {
-      this.player.state.setState('idle');
-    }
-    this.ui.onDialogue(null);
 
-    // Player update (blocked when dead)
-    if (!inputBlocked) {
+    if (!inputBlocked && !this.dialogue.active) {
       this.player.update(deltaTime, input, this.collision);
       this.equipment.recalculate();
     }
 
-    // Attack swing tracking
-    if (this.player.isAttacking && !this._prevAttacking) {
-      // New swing started
-    }
-    if (!this.player.isAttacking && this._prevAttacking) {
-      this.combat.clearSwingFlags(this.enemyAI.enemies);
-    }
+    // Swing tracking
+    if (this.player.isAttacking && !this._prevAttacking) { /* new swing */ }
+    if (!this.player.isAttacking && this._prevAttacking) this.combat.clearSwingFlags(this.enemyAI.enemies);
     this._prevAttacking = this.player.isAttacking;
 
-    // NPC updates
     for (const npc of this.npcs) npc.update(deltaTime, this.gameHour, this.collision);
 
-    // Enemy updates
     const justDied = this.enemyAI.update(deltaTime, this.player, this.collision, this.pathfinding);
     this._handleEnemyDeaths(justDied);
 
-    // World items
     for (const item of this.worldItems) item.update(deltaTime);
     const newItems = this.spawner.update(deltaTime, this.worldItems);
     this.worldItems.push(...newItems);
 
-    // Combat (only process if player alive)
     if (!inputBlocked) {
-      this.combat.update(
-        deltaTime, this.player, this.enemyAI.enemies,
+      this.combat.update(deltaTime, this.player, this.enemyAI.enemies,
         () => {},
         (dmg) => {
           this.addNotification(`-${dmg} HP`, '#ff6666');
-          // Trigger death if HP hits 0
-          if (this.player.hp <= 0 && this.death.isAlive) {
+          if (this.player.hp <= 0 && this.death.isAlive)
             this.death.trigger(this.player, this.networkSync);
-          }
         }
       );
     }
 
-    // Quest collect sync
     this.quests.updateCollectQuests(this.player.inventory);
-
-    // Camera (still follows player during death so the screen centers on corpse)
     this.camera.follow(this.player.centerX, this.player.centerY);
 
-    // Interactions
-    if (!inputBlocked) this._checkInteractions(input);
+    if (!inputBlocked && !this.dialogue.active) this._checkInteractions(input);
 
-    // Prune notifications
     this.notifications = this.notifications
       .map(n => ({ ...n, timer: n.timer - deltaTime }))
       .filter(n => n.timer > 0);
 
-    // Broadcast UI state
     this._broadcastStats();
-
     input.flush();
   }
 
   _handleEnemyDeaths(justDied) {
     for (const enemy of justDied) {
       this.gainXP(enemy.xpReward);
-      const drops = enemy.rollDrops();
-      for (const drop of drops) {
+      for (const drop of enemy.rollDrops()) {
         for (let i = 0; i < drop.count; i++) {
           this.worldItems.push(new WorldItem(drop.itemId,
             enemy.x + (Math.random() - 0.5) * 24,
@@ -296,38 +279,37 @@ export class GameScene {
     }
   }
 
-  /* ── Interaction checks ─────────────────────────────────────────── */
+  /* ── Interactions ───────────────────────────────────────────────── */
 
   _checkInteractions(input) {
-    let nearestNPC = null, nearestNPCDist = Infinity;
+    let nearNPC = null, nearNPCDist = Infinity;
     for (const npc of this.npcs) {
       if (!npc.isNearPlayer(this.player)) continue;
       const d = Math.hypot(npc.centerX - this.player.centerX, npc.centerY - this.player.centerY);
-      if (d < nearestNPCDist) { nearestNPCDist = d; nearestNPC = npc; }
+      if (d < nearNPCDist) { nearNPCDist = d; nearNPC = npc; }
     }
-    this.ui.onNearNPC(nearestNPC);
+    this.ui.onNearNPC(nearNPC);
 
-    if (input.interact && nearestNPC) {
+    if (input.interact && nearNPC) {
       this.player.state.setState('interacting');
-      this.dialogue.startDialogue(nearestNPC, this.player.inventory,
+      this.dialogue.startDialogue(nearNPC, this.player.inventory,
         (action, npc) => this._handleDialogueAction(action, npc));
       return;
     }
 
-    let nearestItem = null, nearestItemDist = Infinity;
+    let nearItem = null, nearItemDist = Infinity;
     for (const item of this.worldItems) {
       if (!item.isNearPlayer(this.player)) continue;
       const d = Math.hypot(item.x - this.player.x, item.y - this.player.y);
-      if (d < nearestItemDist) { nearestItemDist = d; nearestItem = item; }
+      if (d < nearItemDist) { nearItemDist = d; nearItem = item; }
     }
-    this.ui.onNearItem(nearestItem);
+    this.ui.onNearItem(nearItem);
 
-    if (input.interact && nearestItem) this._pickupItem(nearestItem);
+    if (input.interact && nearItem) this._pickupItem(nearItem);
   }
 
   _pickupItem(worldItem) {
-    const added = this.player.inventory.addItem(worldItem.itemId, 1);
-    if (added) {
+    if (this.player.inventory.addItem(worldItem.itemId, 1)) {
       this.spawner.onItemPickedUp(worldItem);
       this.worldItems = this.worldItems.filter(i => i !== worldItem);
       this.networkSync.markInventoryDirty();
@@ -339,36 +321,24 @@ export class GameScene {
   }
 
   _handleDialogueAction(action, npc) {
-    const questStarts = {
-      start_quest_gather_wood: 'gather_wood',
-      start_quest_spirit_hunt: 'spirit_hunt',
-      start_quest_slay_slimes: 'slay_slimes',
-      start_quest_slay_wolves: 'slay_wolves',
-      start_quest_wolf_fangs:  'wolf_fangs',
+    const STARTS = {
+      start_quest_gather_wood:'gather_wood', start_quest_spirit_hunt:'spirit_hunt',
+      start_quest_slay_slimes:'slay_slimes', start_quest_slay_wolves:'slay_wolves',
+      start_quest_wolf_fangs:'wolf_fangs',
     };
-    if (questStarts[action]) {
-      if (this.quests.startQuest(questStarts[action]))
-        this.addNotification('New Quest Started! 📜', '#ffd700');
+    if (STARTS[action]) {
+      if (this.quests.startQuest(STARTS[action])) this.addNotification('Quest Started! 📜', '#ffd700');
       return;
     }
-
-    const questCompletes = {
-      complete_quest_gather_wood: 'gather_wood',
-      complete_quest_wolf_fangs:  'wolf_fangs',
-    };
-    if (questCompletes[action]) {
-      const qid = questCompletes[action];
+    const COMPLETES = { complete_quest_gather_wood:'gather_wood', complete_quest_wolf_fangs:'wolf_fangs' };
+    if (COMPLETES[action]) {
+      const qid = COMPLETES[action];
       if (this.quests.canComplete(qid, this.player.inventory)) {
         const reward = this.quests.completeQuest(qid, this.player.inventory);
-        if (reward) {
-          this.gainXP(reward.xp);
-          this.networkSync.markInventoryDirty();
-          this.addNotification(`Quest Complete! +${reward.xp} XP 🎉`, '#ffd700');
-        }
+        if (reward) { this.gainXP(reward.xp); this.networkSync.markInventoryDirty(); this.addNotification(`Quest Complete! +${reward.xp} XP 🎉`, '#ffd700'); }
       }
       return;
     }
-
     if (action === 'heal_player') {
       if (this.player.inventory.hasItem('herb', 1)) {
         this.player.inventory.removeItem('herb', 1);
@@ -381,14 +351,14 @@ export class GameScene {
     }
   }
 
-  /* ── Player actions (inventory) ─────────────────────────────────── */
+  /* ── Player actions ─────────────────────────────────────────────── */
 
   dropItem(slotIndex) {
     const slot = this.player.inventory.removeAtSlot(slotIndex);
     if (!slot) return;
-    const wx = this.player.x + 8 + (Math.random() - 0.5) * 20;
-    const wy = this.player.y + 8 + (Math.random() - 0.5) * 20;
-    this.worldItems.push(new WorldItem(slot.itemId, wx, wy));
+    this.worldItems.push(new WorldItem(slot.itemId,
+      this.player.x + 8 + (Math.random() - 0.5) * 20,
+      this.player.y + 8 + (Math.random() - 0.5) * 20));
     this.networkSync.markInventoryDirty();
     this.addNotification('Item dropped.', '#aaa');
     this._broadcastStats();
@@ -399,7 +369,7 @@ export class GameScene {
     if (!effect) return;
     if (effect.heal)     { this.player.heal(effect.heal); this.addNotification(`+${effect.heal} HP`, '#90ee90'); }
     if (effect.energy)   { this.player.energy = Math.min(this.player.maxEnergy, this.player.energy + effect.energy); }
-    if (effect.equipped) { this.equipment.recalculate(); this.addNotification(`Equipped!`, '#ffd700'); }
+    if (effect.equipped) { this.equipment.recalculate(); this.addNotification('Equipped!', '#ffd700'); }
     this.networkSync.markInventoryDirty();
     this._broadcastStats();
   }
@@ -421,64 +391,58 @@ export class GameScene {
     ctx.imageSmoothingEnabled = false;
     this.renderer.clear('#1a1a2e');
 
-    // Ground layer
     this.tilemap.renderLayer(ctx, this.assets, 0, this.camera);
 
     // Z-sorted renderables
     const renderables = [];
     for (const item of this.worldItems)
       if (this.camera.isVisible(item.x, item.y, item.width, item.height))
-        renderables.push({ type: 'item', entity: item, zY: item.y + item.height });
-
+        renderables.push({ type:'item',   entity:item,  zY:item.y + item.height });
     for (const npc of this.npcs)
       if (this.camera.isVisible(npc.x, npc.y, npc.width, npc.height))
-        renderables.push({ type: 'npc', entity: npc, zY: npc.y + npc.height });
-
-    for (const enemy of this.enemyAI.enemies)
-      if (!enemy.isFullyDead && this.camera.isVisible(enemy.x, enemy.y, enemy.width, enemy.height))
-        renderables.push({ type: 'enemy', entity: enemy, zY: enemy.y + enemy.height });
-
-    // Remote players
+        renderables.push({ type:'npc',    entity:npc,   zY:npc.y + npc.height });
+    for (const e of this.enemyAI.enemies)
+      if (!e.isFullyDead && this.camera.isVisible(e.x, e.y, e.width, e.height))
+        renderables.push({ type:'enemy',  entity:e,     zY:e.y + e.height });
     for (const rp of this.multiplayer.remotePlayers.values())
-      renderables.push({ type: 'remote', entity: rp, zY: rp.y + rp.height });
-
-    renderables.push({ type: 'player', entity: this.player, zY: this.player.y + this.player.height });
-
-    renderables.sort((a, b) => a.zY - b.zY);
+      renderables.push({ type:'remote',  entity:rp,    zY:rp.y + rp.height });
+    renderables.push({ type:'player', entity:this.player, zY:this.player.y + this.player.height });
+    renderables.sort((a,b) => a.zY - b.zY);
 
     for (const r of renderables) {
       switch (r.type) {
-        case 'item':   this._renderWorldItem(ctx, r.entity);  break;
-        case 'npc':    this._renderNPC(ctx, r.entity);        break;
+        case 'item':   this._renderWorldItem(ctx, r.entity); break;
+        case 'npc':    this._renderNPC(ctx, r.entity);       break;
         case 'enemy':  this.enemyAI._renderEnemy(ctx, this.camera, r.entity); break;
-        case 'player': this._renderPlayer(ctx, r.entity);     break;
-        case 'remote': r.entity.render(ctx, this.camera, this.assets); break;
+        case 'remote': {
+          r.entity.render(ctx, this.camera, this.assets);
+          const rsp = this.camera.worldToScreen(r.entity.x, r.entity.y);
+          this.chat.renderBubble(ctx, rsp.x, rsp.y, r.entity.id, r.entity.width);
+          break;
+        }
+        case 'player': this._renderPlayer(ctx, r.entity);    break;
       }
     }
 
-    // Object layer (trees in front)
+    // Player chat bubble
+    const psp = this.camera.worldToScreen(this.player.x, this.player.y);
+    if (this.multiplayer.localId)
+      this.chat.renderBubble(ctx, psp.x, psp.y, this.multiplayer.localId, this.player.width);
+
     this.tilemap.renderLayer(ctx, this.assets, 1, this.camera);
-
-    // Combat effects
     this.combat.render(ctx, this.camera);
-
-    // Attack arc
     if (this.player.isAttacking) this._renderAttackArc(ctx);
 
-    // Day/night overlay
     const tint = this.getDayNightTint();
     if (tint.alpha > 0) this.renderer.applyTint(tint.color, tint.alpha);
 
-    // Notifications
     this._renderNotifications(ctx);
-
-    // Death overlay (LAST — renders on top of everything)
     this.death.render(ctx, this.canvas.width, this.canvas.height, this._deathMessage);
 
-    // Online player count
+    // Online counter
     if (this.multiplayer.isConnected) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(this.canvas.width - 90, 8, 82, 16);
+      ctx.fillRect(this.canvas.width - 92, 8, 84, 16);
       ctx.fillStyle = '#44ff88';
       ctx.font = '9px monospace';
       ctx.textAlign = 'right';
@@ -488,17 +452,15 @@ export class GameScene {
   }
 
   _renderPlayer(ctx, player) {
-    const sp = camera_worldToScreen(this.camera, player.x, player.y);
+    const sp = this.camera.worldToScreen(player.x, player.y);
     const sx = Math.floor(sp.x), sy = Math.floor(sp.y);
 
-    // Invincibility flicker
     const invinc = this.combat.playerInvincTimer > 0;
-    if (invinc && Math.floor(Date.now() / 80) % 2 === 0) return; // Flicker
+    if (invinc && Math.floor(Date.now() / 80) % 2 === 0) return;
 
-    const img  = this.assets.get('player');
+    const img = this.assets.get('player');
     const rect = player.getSpriteRect();
-    const sc   = 2;
-    const rw = rect.sw * sc, rh = rect.sh * sc;
+    const sc = 2, rw = rect.sw * sc, rh = rect.sh * sc;
 
     if (img) {
       ctx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh,
@@ -506,10 +468,8 @@ export class GameScene {
     } else {
       this._drawPixelPlayer(ctx, sx, sy, player);
     }
-
     this.equipment.renderEquipmentOverlay(ctx, sx, sy - 10, player);
 
-    // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath();
     ctx.ellipse(sx + player.width / 2, sy + player.height, 6, 3, 0, 0, Math.PI * 2);
@@ -543,7 +503,7 @@ export class GameScene {
 
   _renderAttackArc(ctx) {
     const sp = this.camera.worldToScreen(this.player.centerX, this.player.centerY);
-    const a  = { right: 0, down: Math.PI/2, left: Math.PI, up: -Math.PI/2 }[this.player.facing] || 0;
+    const a = { right:0, down:Math.PI/2, left:Math.PI, up:-Math.PI/2 }[this.player.facing] || 0;
     ctx.save();
     ctx.strokeStyle = 'rgba(255,220,50,0.45)';
     ctx.lineWidth = 2;
@@ -556,10 +516,9 @@ export class GameScene {
   _renderNPC(ctx, npc) {
     const sp = this.camera.worldToScreen(npc.x, npc.y);
     const sx = Math.floor(sp.x), sy = Math.floor(sp.y);
-    const img  = this.assets.get(npc.spriteKey);
+    const img = this.assets.get(npc.spriteKey);
     const rect = npc.getSpriteRect();
     const sc = 2;
-
     if (img) {
       ctx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh,
         sx - rect.sw*sc/2 + npc.width/2, sy - rect.sh*sc + npc.height, rect.sw*sc, rect.sh*sc);
@@ -569,17 +528,14 @@ export class GameScene {
       ctx.fillRect(sx + 2, sy, 12, 14);
       ctx.fillStyle = '#FDBCB4'; ctx.fillRect(sx + 3, sy - 7, 10, 8);
     }
-
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath();
     ctx.ellipse(sx + npc.width/2, sy + npc.height, 6, 3, 0, 0, Math.PI*2); ctx.fill();
-
     const nw = npc.name.length * 5 + 8;
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(sx + npc.width/2 - nw/2, sy - 22, nw, 11);
     ctx.fillStyle = '#fff'; ctx.font = '8px monospace'; ctx.textAlign = 'center';
     ctx.fillText(npc.name, sx + npc.width/2, sy - 13); ctx.textAlign = 'left';
-
     const icons = { quest_giver:'❓', merchant:'🛒', guard:'🛡', healer:'💚' };
     if (icons[npc.role]) {
       ctx.font = '10px serif'; ctx.textAlign = 'center';
@@ -590,7 +546,7 @@ export class GameScene {
   _renderWorldItem(ctx, item) {
     const sp = this.camera.worldToScreen(item.x, item.y + item.bobOffset);
     const sx = Math.floor(sp.x), sy = Math.floor(sp.y);
-    const ra = { common: 0.2, rare: 0.4, epic: 0.6 }[item.rarity] || 0.2;
+    const ra = { common:0.2, rare:0.4, epic:0.6 }[item.rarity] || 0.2;
     ctx.save();
     ctx.globalAlpha = ra + Math.sin(item.bobTimer) * 0.1;
     ctx.fillStyle = item.rarity === 'epic' ? '#cc88ff' : item.rarity === 'rare' ? '#4488ff' : item.color;
@@ -623,58 +579,45 @@ export class GameScene {
 
   _broadcastStats() {
     this.ui.onStatsUpdate?.({
-      hp: this.player.hp, maxHP: this.player.maxHP,
-      energy: this.player.energy, maxEnergy: this.player.maxEnergy,
-      defense: this.player.defense, attack: this.player.attack,
-      time: this.timeString, level: this.playerLevel,
-      xp: this.playerXP, xpToNext: this.xpToNext,
-      inventory: this.player.inventory,
-      equipped: this.player.inventory.equipped,
-      quests: this.quests.getActiveList(),
-      onlinePlayers: this.multiplayer.playerCount,
+      hp:this.player.hp, maxHP:this.player.maxHP,
+      energy:this.player.energy, maxEnergy:this.player.maxEnergy,
+      defense:this.player.defense, attack:this.player.attack,
+      time:this.timeString, level:this.playerLevel,
+      xp:this.playerXP, xpToNext:this.xpToNext,
+      inventory:this.player.inventory,
+      equipped:this.player.inventory.equipped,
+      quests:this.quests.getActiveList(),
+      onlinePlayers:this.multiplayer.playerCount,
     });
   }
 
   resize(w, h) { this.renderer.resize(w, h); this.camera.resize(w, h); }
 
-  /* ── Save / Load (now DB-backed, localStorage as fallback) ──────── */
-
   save() {
-    const data = {
-      player:     this.player.serialize(),
-      quests:     this.quests.serialize(),
-      fog:        this.fog.serialize(),
-      gameTime:   this.gameTimeSeconds,
-      playerXP:   this.playerXP,
-      playerLevel: this.playerLevel,
-      xpToNext:   this.xpToNext,
-    };
-    localStorage.setItem('forestRPG_v3_save', JSON.stringify(data));
-    // Also push to network (async, fire-and-forget for now)
+    localStorage.setItem('forestRPG_v3_save', JSON.stringify({
+      player:this.player.serialize(), quests:this.quests.serialize(),
+      fog:this.fog.serialize(), gameTime:this.gameTimeSeconds,
+      playerXP:this.playerXP, playerLevel:this.playerLevel, xpToNext:this.xpToNext,
+    }));
     this.networkSync.flushNow(this.player).catch(() => {});
     this.addNotification('Saved ✓', '#90ee90');
   }
 
   load() {
     const raw = localStorage.getItem('forestRPG_v3_save');
-    if (!raw) { this.addNotification('No local save found.', '#ff9944'); return; }
+    if (!raw) { this.addNotification('No save found.', '#ff9944'); return; }
     try {
-      const data = JSON.parse(raw);
-      this.player.deserialize(data.player);
-      this.quests.deserialize(data.quests);
-      this.fog.deserialize(data.fog);
-      this.gameTimeSeconds = data.gameTime || 8*3600;
-      this.playerXP    = data.playerXP    || 0;
-      this.playerLevel = data.playerLevel || 1;
-      this.xpToNext    = data.xpToNext    || 100;
+      const d = JSON.parse(raw);
+      this.player.deserialize(d.player);
+      this.quests.deserialize(d.quests);
+      this.fog.deserialize(d.fog);
+      this.gameTimeSeconds = d.gameTime || 8*3600;
+      this.playerXP = d.playerXP || 0;
+      this.playerLevel = d.playerLevel || 1;
+      this.xpToNext = d.xpToNext || 100;
       this.equipment.recalculate();
       this.camera.snapTo(this.player.centerX, this.player.centerY);
       this.addNotification('Loaded ✓', '#90ee90');
     } catch { this.addNotification('Load failed.', '#ff4444'); }
   }
-}
-
-// Helper (avoids having to pass camera obj)
-function camera_worldToScreen(camera, x, y) {
-  return { x: x - camera.x, y: y - camera.y };
 }

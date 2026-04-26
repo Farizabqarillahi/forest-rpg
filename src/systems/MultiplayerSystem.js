@@ -1,65 +1,65 @@
 /**
  * MultiplayerSystem - Realtime position broadcast & remote player management.
- *
- * Uses Supabase Realtime Broadcast (no DB round-trip — lowest latency).
- * Channel: "game:world" — all players share one channel, filtered by map.
- *
- * Broadcast payload: { id, username, x, y, dir, state, map }
+ * Also routes chat broadcast events to ChatSystem.
  */
-import { getClient } from './SupabaseService.js';
+import { getClient }    from './SupabaseService.js';
 import { RemotePlayer } from '../entities/RemotePlayer.js';
 
-const BROADCAST_INTERVAL = 0.08; // seconds between position broadcasts (~12 Hz)
-const MAP_NAME = 'world';        // Extend later for multi-map zones
+const BROADCAST_INTERVAL = 0.08;
+const MAP_NAME = 'world';
 
 export class MultiplayerSystem {
   constructor() {
-    this.localId      = null;
-    this.username     = null;
-    this.channel      = null;
-    this.remotePlayers = new Map(); // id → RemotePlayer
+    this.localId       = null;
+    this.username      = null;
+    this.channel       = null;
+    this.remotePlayers = new Map();
     this._broadcastTimer = 0;
     this._lastX = null;
     this._lastY = null;
     this._connected = false;
+
+    // Optional ChatSystem reference — set after construction
+    /** @type {import('./ChatSystem.js').ChatSystem|null} */
+    this.chatSystem = null;
   }
 
-  /** Connect to the realtime channel for the given user */
   async connect(userId, username) {
     const sb = getClient();
-    if (!sb) { console.warn('MultiplayerSystem: Supabase offline, skipping realtime'); return; }
+    if (!sb) { console.warn('MultiplayerSystem: offline'); return; }
 
     this.localId  = userId;
     this.username = username;
 
-    // Leave any existing channel
     if (this.channel) await sb.removeChannel(this.channel);
 
     this.channel = sb.channel(`game:${MAP_NAME}`, {
       config: { broadcast: { self: false } },
     });
 
-    // Listen for position broadcasts from other players
+    // Position updates
     this.channel.on('broadcast', { event: 'pos' }, ({ payload }) => {
-      this._handleRemoteUpdate(payload);
+      this._handlePosUpdate(payload);
     });
 
-    // Listen for disconnect messages
+    // Player left
     this.channel.on('broadcast', { event: 'leave' }, ({ payload }) => {
       this.remotePlayers.delete(payload.id);
     });
 
-    // Subscribe
+    // Chat messages — forwarded to ChatSystem
+    this.channel.on('broadcast', { event: 'chat' }, ({ payload }) => {
+      if (this.chatSystem) this.chatSystem.onReceive(payload);
+    });
+
     this.channel.subscribe((status) => {
       this._connected = status === 'SUBSCRIBED';
       if (this._connected) console.log('🌐 Multiplayer connected');
     });
   }
 
-  /** Disconnect gracefully */
-  async disconnect(player) {
+  async disconnect() {
     if (!this.channel || !this.localId) return;
-    // Announce departure
     this.channel.send({
       type: 'broadcast', event: 'leave',
       payload: { id: this.localId },
@@ -71,10 +71,8 @@ export class MultiplayerSystem {
     this.remotePlayers.clear();
   }
 
-  _handleRemoteUpdate(payload) {
-    if (!payload || !payload.id) return;
-    if (payload.id === this.localId) return; // Ignore self (self:false should handle this)
-
+  _handlePosUpdate(payload) {
+    if (!payload?.id || payload.id === this.localId) return;
     let rp = this.remotePlayers.get(payload.id);
     if (!rp) {
       rp = new RemotePlayer(payload.id, payload);
@@ -84,14 +82,10 @@ export class MultiplayerSystem {
     }
   }
 
-  /**
-   * Main update — throttled broadcast + interpolation of remote players.
-   * Call every game frame.
-   */
   update(deltaTime, player) {
     if (!this._connected || !this.localId) return;
 
-    // Tick remote player interpolation + prune stale ones
+    // Interpolate remote players, prune stale
     for (const [id, rp] of this.remotePlayers) {
       rp.update(deltaTime);
       if (rp.isStale) this.remotePlayers.delete(id);
@@ -105,12 +99,12 @@ export class MultiplayerSystem {
       if (moved || player.state.current !== 'idle') {
         this._lastX = player.x;
         this._lastY = player.y;
-        this._broadcast(player);
+        this._broadcastPos(player);
       }
     }
   }
 
-  _broadcast(player) {
+  _broadcastPos(player) {
     if (!this.channel) return;
     this.channel.send({
       type: 'broadcast', event: 'pos',
@@ -126,7 +120,6 @@ export class MultiplayerSystem {
     });
   }
 
-  /** Render all remote players */
   render(ctx, camera, assets) {
     for (const rp of this.remotePlayers.values()) {
       rp.render(ctx, camera, assets);
@@ -134,5 +127,5 @@ export class MultiplayerSystem {
   }
 
   get isConnected() { return this._connected; }
-  get playerCount() { return this.remotePlayers.size + 1; } // +1 for local
+  get playerCount() { return this.remotePlayers.size + 1; }
 }
