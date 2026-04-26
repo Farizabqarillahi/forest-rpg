@@ -1,11 +1,11 @@
 /**
  * MultiplayerSystem - Realtime position broadcast & remote player management.
- * Also routes chat broadcast events to ChatSystem.
+ * Routes 'chat' broadcast events to ChatBubbleSystem.
  */
 import { getClient }    from './SupabaseService.js';
 import { RemotePlayer } from '../entities/RemotePlayer.js';
 
-const BROADCAST_INTERVAL = 0.08;
+const BROADCAST_INTERVAL = 0.08; // ~12 Hz
 const MAP_NAME = 'world';
 
 export class MultiplayerSystem {
@@ -13,20 +13,20 @@ export class MultiplayerSystem {
     this.localId       = null;
     this.username      = null;
     this.channel       = null;
-    this.remotePlayers = new Map();
+    this.remotePlayers = new Map(); // id → RemotePlayer
     this._broadcastTimer = 0;
     this._lastX = null;
     this._lastY = null;
     this._connected = false;
 
-    // Optional ChatSystem reference — set after construction
-    /** @type {import('./ChatSystem.js').ChatSystem|null} */
-    this.chatSystem = null;
+    // Set after construction by GameScene
+    /** @type {import('./ChatBubbleSystem.js').ChatBubbleSystem|null} */
+    this.chatBubbleSystem = null;
   }
 
   async connect(userId, username) {
     const sb = getClient();
-    if (!sb) { console.warn('MultiplayerSystem: offline'); return; }
+    if (!sb) { console.warn('MultiplayerSystem: Supabase offline'); return; }
 
     this.localId  = userId;
     this.username = username;
@@ -37,19 +37,21 @@ export class MultiplayerSystem {
       config: { broadcast: { self: false } },
     });
 
-    // Position updates
+    // Position updates from other players
     this.channel.on('broadcast', { event: 'pos' }, ({ payload }) => {
       this._handlePosUpdate(payload);
     });
 
-    // Player left
+    // Player left notification
     this.channel.on('broadcast', { event: 'leave' }, ({ payload }) => {
-      this.remotePlayers.delete(payload.id);
+      if (payload?.id) this.remotePlayers.delete(payload.id);
     });
 
-    // Chat messages — forwarded to ChatSystem
+    // Chat messages — route to ChatBubbleSystem
     this.channel.on('broadcast', { event: 'chat' }, ({ payload }) => {
-      if (this.chatSystem) this.chatSystem.onReceive(payload);
+      if (this.chatBubbleSystem) {
+        this.chatBubbleSystem.onReceive(payload, this.remotePlayers);
+      }
     });
 
     this.channel.subscribe((status) => {
@@ -60,10 +62,12 @@ export class MultiplayerSystem {
 
   async disconnect() {
     if (!this.channel || !this.localId) return;
-    this.channel.send({
-      type: 'broadcast', event: 'leave',
-      payload: { id: this.localId },
-    });
+    try {
+      this.channel.send({
+        type: 'broadcast', event: 'leave',
+        payload: { id: this.localId },
+      });
+    } catch {}
     const sb = getClient();
     if (sb) await sb.removeChannel(this.channel);
     this.channel    = null;
@@ -85,7 +89,7 @@ export class MultiplayerSystem {
   update(deltaTime, player) {
     if (!this._connected || !this.localId) return;
 
-    // Interpolate remote players, prune stale
+    // Interpolate remotes, prune stale
     for (const [id, rp] of this.remotePlayers) {
       rp.update(deltaTime);
       if (rp.isStale) this.remotePlayers.delete(id);

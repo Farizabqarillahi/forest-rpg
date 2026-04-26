@@ -1,42 +1,57 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { InputLockSystem } from '../systems/InputLockSystem.js';
 
+const LOCK_REASON = 'chat';
+
 /**
- * ChatInput - floating chat bar at the bottom of the screen.
+ * ChatInput - Minimal floating input bar rendered above the canvas.
  *
- * - Press Enter (when chat NOT open) → open + lock input
- * - Type message → press Enter → send + close
- * - Press Escape → cancel + close
- * - Auto-focuses text input when opened
- * - Registers/deregisters 'chat' lock source with InputLockSystem
+ * Input lock contract (the key fix):
+ *   - On open:   InputLockSystem.lock(LOCK_REASON)
+ *   - On close:  InputLockSystem.clearReason(LOCK_REASON)   ← ALWAYS clearReason
+ *
+ * We NEVER call unlock() — only clearReason(). This guarantees the lock is
+ * released regardless of HOW the component closes (Escape, click-outside,
+ * parent state flip, React StrictMode double-mount, hot reload, etc.).
+ *
+ * The useEffect cleanup function runs on EVERY close path, so putting
+ * clearReason there covers all cases without any extra logic.
  */
-export default function ChatInput({ onSend, isOpen, onOpen, onClose }) {
+export default function ChatInput({ isOpen, onSend, onClose }) {
   const [text, setText] = useState('');
   const inputRef = useRef(null);
 
-  // Focus when opened
   useEffect(() => {
     if (isOpen) {
-      InputLockSystem.lock('chat');
-      setTimeout(() => inputRef.current?.focus(), 0);
-    } else {
-      InputLockSystem.unlock('chat');
+      InputLockSystem.lock(LOCK_REASON);
+      // Delay focus slightly so the Enter key that opened chat
+      // doesn't immediately trigger browser form behaviour
+      const t = setTimeout(() => inputRef.current?.focus(), 20);
+      return () => {
+        clearTimeout(t);
+        // clearReason on every cleanup path — this is the root-fix
+        InputLockSystem.clearReason(LOCK_REASON);
+      };
     }
-    return () => {
-      // Cleanup on unmount
-      InputLockSystem.unlock('chat');
-    };
+    // Also clear if isOpen becomes false without unmounting
+    InputLockSystem.clearReason(LOCK_REASON);
   }, [isOpen]);
 
+  // Also clear on unmount (belt-and-suspenders)
+  useEffect(() => {
+    return () => InputLockSystem.clearReason(LOCK_REASON);
+  }, []);
+
   const handleKeyDown = (e) => {
+    // Stop ALL key events from reaching the game while chat is open
+    e.stopPropagation();
+
     if (e.key === 'Enter') {
       e.preventDefault();
-      e.stopPropagation();
-      if (text.trim()) {
-        onSend(text.trim());
-      }
+      const trimmed = text.trim();
+      if (trimmed) onSend(trimmed);
       setText('');
       onClose();
     }
@@ -50,54 +65,60 @@ export default function ChatInput({ onSend, isOpen, onOpen, onClose }) {
   if (!isOpen) return null;
 
   return (
-    <div style={{
-      position:   'absolute',
-      bottom:     16,
-      left:       '50%',
-      transform:  'translateX(-50%)',
-      zIndex:     200,
-      display:    'flex',
-      alignItems: 'center',
-      gap:        6,
-      fontFamily: 'monospace',
-    }}>
-      {/* Label */}
-      <span style={{ color: '#7cbe7c', fontSize: 10, letterSpacing: 1, whiteSpace: 'nowrap' }}>
-        💬 Say:
-      </span>
-
-      {/* Input */}
-      <input
-        ref={inputRef}
-        value={text}
-        onChange={e => setText(e.target.value.slice(0, 120))}
-        onKeyDown={handleKeyDown}
-        placeholder="Type a message… (Enter to send, Esc to cancel)"
-        style={{
-          background:  'rgba(0,0,0,0.85)',
-          border:      '1px solid #4a8a4a',
-          borderRadius: 4,
-          color:       '#d4e8d4',
-          fontSize:    11,
-          padding:     '5px 10px',
-          width:       320,
-          outline:     'none',
-          fontFamily:  'monospace',
-          letterSpacing: 0.5,
-          boxShadow:   '0 0 12px rgba(0,0,0,0.8)',
-        }}
-        maxLength={120}
-      />
-
-      {/* Char counter */}
-      <span style={{ color: '#2a5a2a', fontSize: 9, whiteSpace: 'nowrap' }}>
-        {text.length}/120
-      </span>
-
-      {/* Hint */}
-      <span style={{ color: '#1a3a1a', fontSize: 9, whiteSpace: 'nowrap' }}>
-        [Esc] cancel
-      </span>
+    <div
+      style={{
+        position:  'absolute',
+        bottom:    20,
+        left:      '50%',
+        transform: 'translateX(-50%)',
+        zIndex:    200,
+        display:   'flex',
+        alignItems:'center',
+        gap:       8,
+        fontFamily:'monospace',
+        // Allow clicks to pass through the outer div but not the input itself
+        pointerEvents: 'none',
+      }}
+    >
+      <div style={{
+        display:       'flex',
+        alignItems:    'center',
+        gap:           8,
+        background:    'rgba(0,0,0,0.82)',
+        border:        '1px solid #3a6a3a',
+        borderRadius:  6,
+        padding:       '5px 10px',
+        boxShadow:     '0 2px 16px rgba(0,0,0,0.7)',
+        pointerEvents: 'auto',
+      }}>
+        <span style={{ color:'#7cbe7c', fontSize:10, whiteSpace:'nowrap' }}>
+          💬
+        </span>
+        <input
+          ref={inputRef}
+          value={text}
+          onChange={e => setText(e.target.value.slice(0, 120))}
+          onKeyDown={handleKeyDown}
+          placeholder="Say something… (Enter to send)"
+          style={{
+            background:  'transparent',
+            border:      'none',
+            color:       '#d4e8d4',
+            fontSize:    11,
+            width:       280,
+            outline:     'none',
+            fontFamily:  'monospace',
+            letterSpacing: 0.3,
+          }}
+          maxLength={120}
+        />
+        <span style={{ color:'#2a5a2a', fontSize:8, whiteSpace:'nowrap' }}>
+          {text.length}/120
+        </span>
+        <span style={{ color:'#1a3a1a', fontSize:8, whiteSpace:'nowrap' }}>
+          [Esc]
+        </span>
+      </div>
     </div>
   );
 }

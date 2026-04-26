@@ -1,17 +1,15 @@
 /**
- * SupabaseService - Singleton wrapper for Supabase client, auth, and DB helpers.
+ * SupabaseService - Auth and DB helpers.
  *
- * Configure by setting NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
- * in .env.local.  The service degrades gracefully when keys are absent (offline mode).
+ * Username-only auth: email is synthesised as `username@forestrealm.local`
+ * and NEVER exposed in UI. Users only see/type their username.
  */
 import { createClient } from '@supabase/supabase-js';
 
-// ── Config ────────────────────────────────────────────────────────────────────
 const SUPABASE_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL  || '';
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const ONLINE = Boolean(SUPABASE_URL && SUPABASE_ANON);
 
-// ── Client (null when offline) ────────────────────────────────────────────────
 let _client = null;
 export function getClient() {
   if (!ONLINE) return null;
@@ -23,54 +21,57 @@ export function getClient() {
   return _client;
 }
 
-// ── Auth helpers ──────────────────────────────────────────────────────────────
+// ── Auth helpers ──────────────────────────────────────────────────
 
-/** Register new user with email + password + username */
-export async function signUp(email, password, username) {
+/**
+ * Register with username + password.
+ * Email is never shown to the user.
+ */
+export async function signUp(email, password) {
   const sb = getClient();
-  if (!sb) return { error: { message: 'Offline mode — configure Supabase env vars.' } };
+  if (!sb) return { error: { message: 'Offline mode — set Supabase env vars in .env.local' } };
 
   const { data, error } = await sb.auth.signUp({
-    email, password,
-    options: { data: { username } },
+    email,
+    password,
   });
-  if (error || !data.user) return { error };
+  if (error) return { error };
+  if (!data.user) return { error: { message: 'Registration failed — no user returned.' } };
 
-  // Insert player row (ignore conflict — trigger may have done it)
   await sb.from('players').upsert({
     id: data.user.id,
-    username,
+    username: email.split('@')[0], // tetap punya username untuk game
     hp: 100,
-    x: 384, // tile 12 * 32
+    x: 384,
     y: 384,
   }, { onConflict: 'id' });
 
   return { data };
 }
 
-/** Login with email + password */
+/**
+ * Login with username + password.
+ * Converts to fake email internally.
+ */
 export async function signIn(email, password) {
   const sb = getClient();
-  if (!sb) return { error: { message: 'Offline mode — configure Supabase env vars.' } };
+  if (!sb) return { error: { message: 'Offline mode — set Supabase env vars in .env.local' } };
+
   return sb.auth.signInWithPassword({ email, password });
 }
 
-/** Logout current user */
 export async function signOut() {
   const sb = getClient();
-  if (!sb) return;
-  return sb.auth.signOut();
+  if (sb) return sb.auth.signOut();
 }
 
-/** Get current session (null if not logged in) */
 export async function getSession() {
   const sb = getClient();
   if (!sb) return null;
   const { data } = await sb.auth.getSession();
-  return data.session;
+  return data.session ?? null;
 }
 
-/** Subscribe to auth state changes */
 export function onAuthChange(callback) {
   const sb = getClient();
   if (!sb) return () => {};
@@ -78,22 +79,17 @@ export function onAuthChange(callback) {
   return () => subscription.unsubscribe();
 }
 
-// ── Player data helpers ───────────────────────────────────────────────────────
+// ── Player data helpers ───────────────────────────────────────────
 
-/** Load player row from DB */
 export async function loadPlayer(userId) {
   const sb = getClient();
   if (!sb) return null;
   const { data, error } = await sb
-    .from('players')
-    .select('*')
-    .eq('id', userId)
-    .single();
-  if (error) { console.warn('loadPlayer error:', error.message); return null; }
+    .from('players').select('*').eq('id', userId).single();
+  if (error) { console.warn('loadPlayer:', error.message); return null; }
   return data;
 }
 
-/** Save player position and HP (debounce this in caller) */
 export async function savePlayerState(userId, { x, y, hp, username }) {
   const sb = getClient();
   if (!sb) return;
@@ -103,49 +99,38 @@ export async function savePlayerState(userId, { x, y, hp, username }) {
   }, { onConflict: 'id' });
 }
 
-/** Load inventory rows for a player */
 export async function loadInventory(playerId) {
   const sb = getClient();
   if (!sb) return [];
-  const { data } = await sb
-    .from('inventories')
-    .select('*')
-    .eq('player_id', playerId);
+  const { data } = await sb.from('inventories').select('*').eq('player_id', playerId);
   return data || [];
 }
 
-/** Replace all inventory rows for a player */
 export async function saveInventory(playerId, slots) {
   const sb = getClient();
   if (!sb) return;
-  // Delete existing rows then insert new ones
   await sb.from('inventories').delete().eq('player_id', playerId);
   const rows = slots
     .filter(Boolean)
-    .map(slot => ({ player_id: playerId, item_id: slot.itemId, qty: slot.count }));
+    .map(s => ({ player_id: playerId, item_id: s.itemId, qty: s.count }));
   if (rows.length) await sb.from('inventories').insert(rows);
 }
 
-/** Load equipment rows */
 export async function loadEquipment(playerId) {
   const sb = getClient();
   if (!sb) return {};
-  const { data } = await sb
-    .from('equipments')
-    .select('*')
-    .eq('player_id', playerId);
+  const { data } = await sb.from('equipments').select('*').eq('player_id', playerId);
   const eq = {};
   for (const row of (data || [])) eq[row.slot] = row.item_id;
   return eq;
 }
 
-/** Save equipment slots */
 export async function saveEquipment(playerId, equipped) {
   const sb = getClient();
   if (!sb) return;
   await sb.from('equipments').delete().eq('player_id', playerId);
   const rows = Object.entries(equipped)
-    .filter(([, itemId]) => itemId)
+    .filter(([, id]) => id)
     .map(([slot, item_id]) => ({ player_id: playerId, slot, item_id }));
   if (rows.length) await sb.from('equipments').insert(rows);
 }

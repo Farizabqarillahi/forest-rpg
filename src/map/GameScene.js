@@ -1,29 +1,38 @@
 /**
- * GameScene - Complete orchestrator with all systems integrated:
- * combat, enemies, safe zones, chat, multiplayer, death, equipment, quests.
+ * GameScene - Main orchestrator.
+ *
+ * INPUT LOCK FIXES applied here:
+ *   1. dialogue.startDialogue() → lock happens inside DialogueSystem
+ *   2. dialogue.endDialogue()   → clearReason happens inside DialogueSystem
+ *   3. No lock/unlock calls anywhere in the update() loop
+ *   4. death.blocksInput derived from DeathSystem state, not InputLockSystem
+ *
+ * CHAT BUBBLE SYSTEM:
+ *   - ChatSystem removed; replaced by ChatBubbleSystem
+ *   - Bubbles rendered directly on canvas above sprites
+ *   - No UI chat panel
  */
-import { Camera }            from '../engine/Camera.js';
-import { Renderer }          from '../engine/Renderer.js';
-import { CollisionSystem }   from '../systems/CollisionSystem.js';
-import { DialogueSystem }    from '../systems/DialogueSystem.js';
-import { Pathfinding }       from '../systems/Pathfinding.js';
-import { CombatSystem }      from '../systems/CombatSystem.js';
-import { EnemyAISystem }     from '../systems/EnemyAISystem.js';
-import { EquipmentSystem }   from '../systems/EquipmentSystem.js';
-import { WorldItemSpawner }  from '../systems/WorldItemSpawner.js';
-import { QuestSystem }       from '../systems/QuestSystem.js';
-import { MapFogSystem }      from '../systems/MapFogSystem.js';
-import { DeathSystem }       from '../systems/DeathSystem.js';
-import { NetworkSync }       from '../systems/NetworkSync.js';
-import { MultiplayerSystem } from '../systems/MultiplayerSystem.js';
-import { ChatSystem }        from '../systems/ChatSystem.js';
-import { SafeZoneSystem }    from '../systems/SafeZoneSystem.js';
-import { InputLockSystem }   from '../systems/InputLockSystem.js';
-import { Player }            from '../entities/Player.js';
-import { NPC }               from '../entities/NPC.js';
-import { WorldItem }         from '../entities/Item.js';
-import { Tilemap }           from '../map/Tilemap.js';
-import { ProceduralMap }     from '../map/ProceduralMap.js';
+import { Camera }             from '../engine/Camera.js';
+import { Renderer }           from '../engine/Renderer.js';
+import { CollisionSystem }    from '../systems/CollisionSystem.js';
+import { DialogueSystem }     from '../systems/DialogueSystem.js';
+import { Pathfinding }        from '../systems/Pathfinding.js';
+import { CombatSystem }       from '../systems/CombatSystem.js';
+import { EnemyAISystem }      from '../systems/EnemyAISystem.js';
+import { EquipmentSystem }    from '../systems/EquipmentSystem.js';
+import { WorldItemSpawner }   from '../systems/WorldItemSpawner.js';
+import { QuestSystem }        from '../systems/QuestSystem.js';
+import { MapFogSystem }       from '../systems/MapFogSystem.js';
+import { DeathSystem }        from '../systems/DeathSystem.js';
+import { NetworkSync }        from '../systems/NetworkSync.js';
+import { MultiplayerSystem }  from '../systems/MultiplayerSystem.js';
+import { ChatBubbleSystem }   from '../systems/ChatBubbleSystem.js';
+import { SafeZoneSystem }     from '../systems/SafeZoneSystem.js';
+import { Player }             from '../entities/Player.js';
+import { NPC }                from '../entities/NPC.js';
+import { WorldItem }          from '../entities/Item.js';
+import { Tilemap }            from '../map/Tilemap.js';
+import { ProceduralMap }      from '../map/ProceduralMap.js';
 
 export class GameScene {
   constructor(canvas, assets, rawMapData, uiCallbacks) {
@@ -36,10 +45,11 @@ export class GameScene {
     this.tilemap  = new Tilemap(this.mapData);
 
     this.renderer = new Renderer(canvas);
-    this.camera   = new Camera(canvas.width, canvas.height,
-      this.tilemap.worldWidth, this.tilemap.worldHeight);
+    this.camera   = new Camera(
+      canvas.width, canvas.height,
+      this.tilemap.worldWidth, this.tilemap.worldHeight
+    );
 
-    // Core systems
     this.collision   = new CollisionSystem(this.mapData);
     this.pathfinding = new Pathfinding(this.mapData.collisionMap, this.mapData.tileSize);
     this.dialogue    = new DialogueSystem();
@@ -47,41 +57,39 @@ export class GameScene {
     this.quests      = new QuestSystem();
     this.fog         = new MapFogSystem(this.mapData.width, this.mapData.height);
 
-    // Spawn point
+    // Safe zone: village area is enemy-free
+    this.safeZone = new SafeZoneSystem();
+    this.safeZone.addTileZone(5, 5, 14, 12, 2, this.mapData.tileSize, 'village');
+
     const startTile = this._findStartTile();
     this.spawnX     = startTile.x * 32 + 8;
     this.spawnY     = startTile.y * 32 + 8;
 
-    // Safe zone — village area must be enemy-free
-    this.safeZone = new SafeZoneSystem();
-    this.safeZone.addTileZone(5, 5, 14, 12, 2, this.mapData.tileSize, 'village');
-
-    // Player
     this.player = new Player(this.spawnX, this.spawnY);
+    // Initialise chat fields on player
+    this.player.chatMessage   = null;
+    this.player.chatTimestamp = 0;
+
     this.player.defense     = 0;
     this.player.attackRange = 28;
     this.player.energyRegen = 5;
     this.equipment = new EquipmentSystem(this.player);
     this.equipment.recalculate();
 
-    // Enemy AI (uses SafeZoneSystem + EnemySpawnSystem internally)
     this.enemyAI = new EnemyAISystem(
       this.mapData, this.mapData.collisionMap, this.mapData.tileSize,
       this.safeZone, this.spawnX, this.spawnY
     );
 
-    // Item spawner
     this.spawner    = new WorldItemSpawner(this.mapData);
     this.npcs       = [];
     this.worldItems = [];
     this.notifications = [];
 
-    // XP / level
     this.playerXP    = 0;
     this.playerLevel = 1;
     this.xpToNext    = 100;
 
-    // Time
     this.gameTimeSeconds        = 8 * 3600;
     this.realSecondsPerGameHour = 30;
 
@@ -89,7 +97,9 @@ export class GameScene {
     this.death = new DeathSystem(this.spawnX, this.spawnY);
     this.death.onDeath   = (info) => {
       const p = info?.penalty ?? 0;
-      this._deathMessage = p > 0 ? `Lost ${p} gold coin${p !== 1 ? 's' : ''}.` : 'No gold lost.';
+      this._deathMessage = p > 0
+        ? `Lost ${p} gold coin${p !== 1 ? 's' : ''}.`
+        : 'No gold lost.';
       this.ui.onDeath?.({ penalty: p, message: this._deathMessage });
     };
     this.death.onRespawn = () => this.ui.onRespawn?.();
@@ -98,10 +108,11 @@ export class GameScene {
     // Network
     this.networkSync = new NetworkSync();
     this.multiplayer = new MultiplayerSystem();
-    this.chat        = new ChatSystem(this.multiplayer);
-    this.multiplayer.chatSystem = this.chat; // wire chat events
 
-    // Attack swing tracking
+    // Chat bubble system (no UI panel — canvas only)
+    this.chatBubble = new ChatBubbleSystem(this.multiplayer);
+    this.multiplayer.chatBubbleSystem = this.chatBubble;
+
     this._prevAttacking = false;
 
     this._initNPCs();
@@ -111,8 +122,6 @@ export class GameScene {
 
     this.camera.snapTo(this.player.centerX, this.player.centerY);
   }
-
-  /* ── Setup helpers ──────────────────────────────────────────────── */
 
   _findStartTile() {
     const col = this.mapData.collisionMap;
@@ -126,18 +135,20 @@ export class GameScene {
     for (const d of this.mapData.npcs || []) this.npcs.push(new NPC(d, this.pathfinding));
   }
 
-  /* ── Auth binding ───────────────────────────────────────────────── */
+  // ── Auth binding ─────────────────────────────────────────────────
 
   async bindUser(userId, username, savedData) {
     this.networkSync.bind(userId, username);
-    this.chat.bind(userId, username);
     await this.multiplayer.connect(userId, username);
 
     if (savedData?.player) {
       this.player.deserialize(savedData.player);
-      if (savedData.player.inventory) this.player.inventory.deserialize(savedData.player.inventory);
-      if (savedData.player.inventory?.equipped)
-        this.player.inventory.equipped = { ...savedData.player.inventory.equipped };
+      if (savedData.player.inventory) {
+        this.player.inventory.deserialize(savedData.player.inventory);
+        if (savedData.player.inventory.equipped) {
+          this.player.inventory.equipped = { ...savedData.player.inventory.equipped };
+        }
+      }
       this.equipment.recalculate();
       this.camera.snapTo(this.player.centerX, this.player.centerY);
     }
@@ -147,13 +158,20 @@ export class GameScene {
     await this.networkSync.flushNow(this.player);
     await this.multiplayer.disconnect();
     this.networkSync.unbind();
-    this.chat.unbind();
   }
 
-  /* ── Chat proxy ─────────────────────────────────────────────────── */
-  sendChat(text) { this.chat.send(text); }
+  // ── Chat proxy (called from Game.js / page.js) ───────────────────
 
-  /* ── Computed ───────────────────────────────────────────────────── */
+  sendChat(text) {
+    this.chatBubble.send(
+      text,
+      this.player,
+      this.multiplayer.localId,
+      this.multiplayer.username
+    );
+  }
+
+  // ── Computed props ───────────────────────────────────────────────
 
   get gameHour() { return Math.floor((this.gameTimeSeconds / 3600) % 24); }
   get timeString() {
@@ -171,68 +189,70 @@ export class GameScene {
   }
 
   /* ══════════════════════════════════════════════════════════════════
-     UPDATE
+     UPDATE — no InputLockSystem calls here
   ══════════════════════════════════════════════════════════════════ */
 
   update(deltaTime, input) {
     this.gameTimeSeconds += deltaTime * (3600 / this.realSecondsPerGameHour);
 
-    // Death system
+    // Death system (internal state — not InputLockSystem)
     this.death.update(deltaTime, this.player);
+    const inputBlocked = this.death.blocksInput;
 
     // Network
     this.networkSync.tick(deltaTime, this.player);
     this.multiplayer.update(deltaTime, this.player);
-    this.chat.update(deltaTime);
 
-    // Fog
+    // Fog of war
     const ptx = Math.floor(this.player.centerX / this.mapData.tileSize);
     const pty = Math.floor(this.player.centerY / this.mapData.tileSize);
     this.fog.updateExploration(ptx, pty);
 
-    const inputBlocked = this.death.blocksInput;
-
-    // Dialogue (only when not dead and not otherwise locked)
-    if (this.dialogue.active && !inputBlocked) {
-      InputLockSystem.lock('dialogue');
+    // Dialogue update
+    // DialogueSystem manages its own lock — we just call update() when active
+    if (this.dialogue.active) {
       this.dialogue.update(deltaTime, input);
       this.player.state.setState('interacting');
       this.ui.onDialogue(this.dialogue);
-      input.flush();
     } else {
-      InputLockSystem.unlock('dialogue');
-      if (!this.dialogue.active && this.player.state.is('interacting') && !inputBlocked) {
-        this.player.state.setState('idle');
-      }
+      if (this.player.state.is('interacting')) this.player.state.setState('idle');
       this.ui.onDialogue(null);
     }
 
+    // Player movement (only when not dead and not in dialogue)
     if (!inputBlocked && !this.dialogue.active) {
       this.player.update(deltaTime, input, this.collision);
       this.equipment.recalculate();
     }
 
-    // Swing tracking
-    if (this.player.isAttacking && !this._prevAttacking) { /* new swing */ }
-    if (!this.player.isAttacking && this._prevAttacking) this.combat.clearSwingFlags(this.enemyAI.enemies);
+    // Attack swing tracking
+    if (!this.player.isAttacking && this._prevAttacking) {
+      this.combat.clearSwingFlags(this.enemyAI.enemies);
+    }
     this._prevAttacking = this.player.isAttacking;
 
+    // NPCs
     for (const npc of this.npcs) npc.update(deltaTime, this.gameHour, this.collision);
 
+    // Enemies + deaths
     const justDied = this.enemyAI.update(deltaTime, this.player, this.collision, this.pathfinding);
     this._handleEnemyDeaths(justDied);
 
+    // World items
     for (const item of this.worldItems) item.update(deltaTime);
     const newItems = this.spawner.update(deltaTime, this.worldItems);
     this.worldItems.push(...newItems);
 
+    // Combat (only when alive)
     if (!inputBlocked) {
-      this.combat.update(deltaTime, this.player, this.enemyAI.enemies,
+      this.combat.update(
+        deltaTime, this.player, this.enemyAI.enemies,
         () => {},
         (dmg) => {
           this.addNotification(`-${dmg} HP`, '#ff6666');
-          if (this.player.hp <= 0 && this.death.isAlive)
+          if (this.player.hp <= 0 && this.death.isAlive) {
             this.death.trigger(this.player, this.networkSync);
+          }
         }
       );
     }
@@ -255,9 +275,11 @@ export class GameScene {
       this.gainXP(enemy.xpReward);
       for (const drop of enemy.rollDrops()) {
         for (let i = 0; i < drop.count; i++) {
-          this.worldItems.push(new WorldItem(drop.itemId,
+          this.worldItems.push(new WorldItem(
+            drop.itemId,
             enemy.x + (Math.random() - 0.5) * 24,
-            enemy.y + (Math.random() - 0.5) * 24));
+            enemy.y + (Math.random() - 0.5) * 24
+          ));
         }
       }
       this.quests.onEnemyKilled(enemy.type);
@@ -278,8 +300,6 @@ export class GameScene {
       this.addNotification(`LEVEL UP! Lv.${this.playerLevel} 🎉`, '#ffd700');
     }
   }
-
-  /* ── Interactions ───────────────────────────────────────────────── */
 
   _checkInteractions(input) {
     let nearNPC = null, nearNPCDist = Infinity;
@@ -335,7 +355,11 @@ export class GameScene {
       const qid = COMPLETES[action];
       if (this.quests.canComplete(qid, this.player.inventory)) {
         const reward = this.quests.completeQuest(qid, this.player.inventory);
-        if (reward) { this.gainXP(reward.xp); this.networkSync.markInventoryDirty(); this.addNotification(`Quest Complete! +${reward.xp} XP 🎉`, '#ffd700'); }
+        if (reward) {
+          this.gainXP(reward.xp);
+          this.networkSync.markInventoryDirty();
+          this.addNotification(`Quest Complete! +${reward.xp} XP 🎉`, '#ffd700');
+        }
       }
       return;
     }
@@ -351,10 +375,8 @@ export class GameScene {
     }
   }
 
-  /* ── Player actions ─────────────────────────────────────────────── */
-
-  dropItem(slotIndex) {
-    const slot = this.player.inventory.removeAtSlot(slotIndex);
+  dropItem(i) {
+    const slot = this.player.inventory.removeAtSlot(i);
     if (!slot) return;
     this.worldItems.push(new WorldItem(slot.itemId,
       this.player.x + 8 + (Math.random() - 0.5) * 20,
@@ -364,8 +386,8 @@ export class GameScene {
     this._broadcastStats();
   }
 
-  useItem(slotIndex) {
-    const effect = this.player.inventory.useItemAt(slotIndex);
+  useItem(i) {
+    const effect = this.player.inventory.useItemAt(i);
     if (!effect) return;
     if (effect.heal)     { this.player.heal(effect.heal); this.addNotification(`+${effect.heal} HP`, '#90ee90'); }
     if (effect.energy)   { this.player.energy = Math.min(this.player.maxEnergy, this.player.energy + effect.energy); }
@@ -374,8 +396,8 @@ export class GameScene {
     this._broadcastStats();
   }
 
-  unequipSlot(slotId) {
-    if (this.player.inventory.unequipSlot(slotId)) {
+  unequipSlot(s) {
+    if (this.player.inventory.unequipSlot(s)) {
       this.equipment.recalculate();
       this.networkSync.markInventoryDirty();
       this._broadcastStats();
@@ -393,41 +415,42 @@ export class GameScene {
 
     this.tilemap.renderLayer(ctx, this.assets, 0, this.camera);
 
-    // Z-sorted renderables
+    // Collect + z-sort renderables
     const renderables = [];
+
     for (const item of this.worldItems)
       if (this.camera.isVisible(item.x, item.y, item.width, item.height))
         renderables.push({ type:'item',   entity:item,  zY:item.y + item.height });
+
     for (const npc of this.npcs)
       if (this.camera.isVisible(npc.x, npc.y, npc.width, npc.height))
         renderables.push({ type:'npc',    entity:npc,   zY:npc.y + npc.height });
+
     for (const e of this.enemyAI.enemies)
       if (!e.isFullyDead && this.camera.isVisible(e.x, e.y, e.width, e.height))
         renderables.push({ type:'enemy',  entity:e,     zY:e.y + e.height });
+
     for (const rp of this.multiplayer.remotePlayers.values())
       renderables.push({ type:'remote',  entity:rp,    zY:rp.y + rp.height });
+
     renderables.push({ type:'player', entity:this.player, zY:this.player.y + this.player.height });
-    renderables.sort((a,b) => a.zY - b.zY);
+    renderables.sort((a, b) => a.zY - b.zY);
 
     for (const r of renderables) {
       switch (r.type) {
         case 'item':   this._renderWorldItem(ctx, r.entity); break;
         case 'npc':    this._renderNPC(ctx, r.entity);       break;
         case 'enemy':  this.enemyAI._renderEnemy(ctx, this.camera, r.entity); break;
+        case 'player': this._renderPlayer(ctx, r.entity);    break;
         case 'remote': {
+          const sp = this.camera.worldToScreen(r.entity.x, r.entity.y);
           r.entity.render(ctx, this.camera, this.assets);
-          const rsp = this.camera.worldToScreen(r.entity.x, r.entity.y);
-          this.chat.renderBubble(ctx, rsp.x, rsp.y, r.entity.id, r.entity.width);
+          // Chat bubble above remote player
+          ChatBubbleSystem.renderBubble(ctx, sp.x, sp.y, r.entity.width, r.entity);
           break;
         }
-        case 'player': this._renderPlayer(ctx, r.entity);    break;
       }
     }
-
-    // Player chat bubble
-    const psp = this.camera.worldToScreen(this.player.x, this.player.y);
-    if (this.multiplayer.localId)
-      this.chat.renderBubble(ctx, psp.x, psp.y, this.multiplayer.localId, this.player.width);
 
     this.tilemap.renderLayer(ctx, this.assets, 1, this.camera);
     this.combat.render(ctx, this.camera);
@@ -439,12 +462,12 @@ export class GameScene {
     this._renderNotifications(ctx);
     this.death.render(ctx, this.canvas.width, this.canvas.height, this._deathMessage);
 
-    // Online counter
+    // Online badge
     if (this.multiplayer.isConnected) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(this.canvas.width - 92, 8, 84, 16);
+      ctx.fillRect(this.canvas.width - 94, 8, 86, 16);
       ctx.fillStyle = '#44ff88';
-      ctx.font = '9px monospace';
+      ctx.font      = '9px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(`🌐 ${this.multiplayer.playerCount} online`, this.canvas.width - 10, 20);
       ctx.textAlign = 'left';
@@ -455,12 +478,12 @@ export class GameScene {
     const sp = this.camera.worldToScreen(player.x, player.y);
     const sx = Math.floor(sp.x), sy = Math.floor(sp.y);
 
-    const invinc = this.combat.playerInvincTimer > 0;
-    if (invinc && Math.floor(Date.now() / 80) % 2 === 0) return;
+    // Invincibility flicker
+    if (this.combat.playerInvincTimer > 0 && Math.floor(Date.now() / 80) % 2 === 0) return;
 
-    const img = this.assets.get('player');
+    const img  = this.assets.get('player');
     const rect = player.getSpriteRect();
-    const sc = 2, rw = rect.sw * sc, rh = rect.sh * sc;
+    const sc   = 2, rw = rect.sw * sc, rh = rect.sh * sc;
 
     if (img) {
       ctx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh,
@@ -470,19 +493,21 @@ export class GameScene {
     }
     this.equipment.renderEquipmentOverlay(ctx, sx, sy - 10, player);
 
+    // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath();
     ctx.ellipse(sx + player.width / 2, sy + player.height, 6, 3, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Chat bubble above local player
+    ChatBubbleSystem.renderBubble(ctx, sx, sy, player.width, player);
   }
 
   _drawPixelPlayer(ctx, sx, sy, player) {
     ctx.fillStyle = player.inventory.equipped.armor ? '#888' : '#4a9eed';
     ctx.fillRect(sx + 2, sy + 4, 12, 10);
-    ctx.fillStyle = '#FDBCB4';
-    ctx.fillRect(sx + 3, sy, 10, 8);
-    ctx.fillStyle = '#8B4513';
-    ctx.fillRect(sx + 3, sy, 10, 3);
+    ctx.fillStyle = '#FDBCB4'; ctx.fillRect(sx + 3, sy, 10, 8);
+    ctx.fillStyle = '#8B4513'; ctx.fillRect(sx + 3, sy, 10, 3);
     if (player.inventory.equipped.helmet) {
       ctx.fillStyle = 'rgba(180,180,180,0.7)'; ctx.fillRect(sx + 3, sy, 10, 4);
     }
@@ -503,10 +528,10 @@ export class GameScene {
 
   _renderAttackArc(ctx) {
     const sp = this.camera.worldToScreen(this.player.centerX, this.player.centerY);
-    const a = { right:0, down:Math.PI/2, left:Math.PI, up:-Math.PI/2 }[this.player.facing] || 0;
+    const a  = { right:0, down:Math.PI/2, left:Math.PI, up:-Math.PI/2 }[this.player.facing] || 0;
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,220,50,0.45)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,220,50,0.4)';
+    ctx.lineWidth   = 2;
     ctx.beginPath();
     ctx.arc(Math.floor(sp.x), Math.floor(sp.y), this.player.attackRange, a - 0.9*Math.PI/2, a + 0.9*Math.PI/2);
     ctx.stroke();
@@ -516,9 +541,9 @@ export class GameScene {
   _renderNPC(ctx, npc) {
     const sp = this.camera.worldToScreen(npc.x, npc.y);
     const sx = Math.floor(sp.x), sy = Math.floor(sp.y);
-    const img = this.assets.get(npc.spriteKey);
+    const img  = this.assets.get(npc.spriteKey);
     const rect = npc.getSpriteRect();
-    const sc = 2;
+    const sc   = 2;
     if (img) {
       ctx.drawImage(img, rect.sx, rect.sy, rect.sw, rect.sh,
         sx - rect.sw*sc/2 + npc.width/2, sy - rect.sh*sc + npc.height, rect.sw*sc, rect.sh*sc);
@@ -549,7 +574,7 @@ export class GameScene {
     const ra = { common:0.2, rare:0.4, epic:0.6 }[item.rarity] || 0.2;
     ctx.save();
     ctx.globalAlpha = ra + Math.sin(item.bobTimer) * 0.1;
-    ctx.fillStyle = item.rarity === 'epic' ? '#cc88ff' : item.rarity === 'rare' ? '#4488ff' : item.color;
+    ctx.fillStyle   = item.rarity === 'epic' ? '#cc88ff' : item.rarity === 'rare' ? '#4488ff' : item.color;
     ctx.fillRect(sx - 4, sy - 4, item.width + 8, item.height + 8);
     ctx.restore();
     ctx.fillStyle = item.color; ctx.fillRect(sx, sy, item.width, item.height);
@@ -612,9 +637,9 @@ export class GameScene {
       this.quests.deserialize(d.quests);
       this.fog.deserialize(d.fog);
       this.gameTimeSeconds = d.gameTime || 8*3600;
-      this.playerXP = d.playerXP || 0;
+      this.playerXP    = d.playerXP    || 0;
       this.playerLevel = d.playerLevel || 1;
-      this.xpToNext = d.xpToNext || 100;
+      this.xpToNext    = d.xpToNext    || 100;
       this.equipment.recalculate();
       this.camera.snapTo(this.player.centerX, this.player.centerY);
       this.addNotification('Loaded ✓', '#90ee90');

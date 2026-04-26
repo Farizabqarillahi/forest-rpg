@@ -1,32 +1,63 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { InputLockSystem } from '../systems/InputLockSystem.js';
+
+const LOCK_REASON = 'auth';
 
 export default function AuthPanel({ onLogin, onRegister, onLogout, user, isOnline }) {
-  const [mode,     setMode]     = useState('login'); // 'login' | 'register'
+  const [mode,     setMode]     = useState('login');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('');
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [success,  setSuccess]  = useState('');
 
-  const handle = async (e) => {
+  useEffect(() => {
+    InputLockSystem.lock(LOCK_REASON);
+    return () => InputLockSystem.clearReason(LOCK_REASON);
+  }, []);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
     setError(''); setSuccess(''); setLoading(true);
+
+    if (!email.trim()) {
+      setError('Email is required.');
+      setLoading(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      setLoading(false);
+      return;
+    }
+
     try {
       let result;
       if (mode === 'login') {
-        result = await onLogin(email, password);
+        result = await onLogin(email.trim(), password);
       } else {
-        if (!username.trim()) { setError('Username is required.'); setLoading(false); return; }
-        result = await onRegister(email, password, username.trim());
+        result = await onRegister(email.trim(), password);
       }
+
       if (result?.error) {
-        setError(result.error.message || 'Unknown error.');
+        const msg = result.error.message || '';
+        if (msg.includes('already registered')) {
+          setError('Email already registered.');
+        } else if (msg.includes('Invalid login') || msg.includes('invalid_credentials')) {
+          setError('Wrong email or password.');
+        } else if (msg.includes('Email rate limit')) {
+          setError('Too many attempts. Please wait a moment.');
+        } else {
+          setError(msg || 'Something went wrong.');
+        }
       } else {
-        setSuccess(mode === 'register' ? 'Account created! You are now logged in.' : '');
-        setEmail(''); setPassword(''); setUsername('');
+        setSuccess(mode === 'register' ? 'Account created! Welcome.' : '');
+        setEmail('');
+        setPassword('');
       }
     } catch (err) {
       setError(err.message || 'Unexpected error.');
@@ -35,129 +66,128 @@ export default function AuthPanel({ onLogin, onRegister, onLogout, user, isOnlin
     }
   };
 
-  // ── Logged-in view ────────────────────────────────────────────────
   if (user) {
     return (
-      <div style={panel}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 18 }}>🧙</span>
-          <div>
-            <div style={{ color: '#7cbe7c', fontSize: 11, letterSpacing: 1 }}>{user.username}</div>
-            <div style={{ color: '#444', fontSize: 9 }}>{user.email}</div>
+      <div style={panelStyle}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:20 }}>🧙</span>
+          <div style={{ flex:1 }}>
+            <div style={{ color:'#7cbe7c', fontSize:12, letterSpacing:1, fontWeight:'bold' }}>
+              {user.email}
+            </div>
+            <div style={{ color:'#2a5a2a', fontSize:9, marginTop:1 }}>
+              Logged in
+            </div>
           </div>
-          <button
-            onClick={onLogout}
-            style={{ ...smallBtn('#4a1a1a', '#be7c7c'), marginLeft: 'auto' }}
-          >
+          <button onClick={onLogout} style={btn('#4a1a1a','#be7c7c')}>
             Logout
           </button>
         </div>
-        {!isOnline && (
-          <div style={{ color: '#ff9944', fontSize: 8, marginTop: 6, textAlign: 'center' }}>
-            ⚠ Offline mode — configure Supabase env vars
-          </div>
-        )}
+        {!isOnline && <OfflineNote />}
       </div>
     );
   }
 
-  // ── Auth form ─────────────────────────────────────────────────────
   return (
-    <div style={panel}>
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-        {['login', 'register'].map(m => (
-          <button key={m} onClick={() => { setMode(m); setError(''); setSuccess(''); }}
+    <div style={panelStyle} onClick={e => e.stopPropagation()}>
+      <div style={{ display:'flex', gap:6, marginBottom:12 }}>
+        {['login','register'].map(m => (
+          <button
+            key={m}
+            onClick={() => { setMode(m); setError(''); setSuccess(''); }}
             style={{
-              ...smallBtn(mode === m ? '#1a3a1a' : 'transparent', mode === m ? '#7cbe7c' : '#3a5a3a'),
-              fontSize: 10, flex: 1,
-            }}>
+              ...btn(mode === m ? '#1a3a1a' : 'transparent', mode === m ? '#7cbe7c' : '#3a5a3a'),
+              flex:1, fontSize:10,
+            }}
+          >
             {m === 'login' ? '🔑 Login' : '✨ Register'}
           </button>
         ))}
       </div>
 
-      <form onSubmit={handle} style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-        {mode === 'register' && (
-          <input
-            placeholder="Username"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            style={inp}
-            required
-            maxLength={20}
-          />
-        )}
+      <form onSubmit={handleSubmit} style={{ display:'flex', flexDirection:'column', gap:8 }}>
+        <label style={{ color:'#4a7a4a', fontSize:9, letterSpacing:1 }}>EMAIL</label>
         <input
           type="email"
-          placeholder="Email"
           value={email}
           onChange={e => setEmail(e.target.value)}
-          style={inp}
+          onKeyDown={e => e.stopPropagation()}
+          placeholder="you@email.com"
+          style={inputStyle}
+          autoComplete="email"
           required
         />
+
+        <label style={{ color:'#4a7a4a', fontSize:9, letterSpacing:1, marginTop:2 }}>PASSWORD</label>
         <input
           type="password"
-          placeholder="Password (min 6 chars)"
           value={password}
           onChange={e => setPassword(e.target.value)}
-          style={inp}
+          onKeyDown={e => e.stopPropagation()}
+          placeholder="••••••••"
+          style={inputStyle}
+          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
           required
           minLength={6}
         />
 
-        {error   && <div style={{ color: '#ff6666', fontSize: 9 }}>⚠ {error}</div>}
-        {success && <div style={{ color: '#90ee90', fontSize: 9 }}>✓ {success}</div>}
+        {error   && <div style={{ color:'#ff7777', fontSize:9, padding:'4px 0' }}>⚠ {error}</div>}
+        {success && <div style={{ color:'#7cbe7c', fontSize:9, padding:'4px 0' }}>✓ {success}</div>}
 
-        <button type="submit" disabled={loading}
-          style={{
-            ...smallBtn('#1a4a2a', '#7cbe7c'),
-            fontSize: 11, padding: '6px 0', opacity: loading ? 0.6 : 1,
-          }}>
-          {loading ? '...' : mode === 'login' ? 'Login' : 'Create Account'}
+        <button
+          type="submit"
+          disabled={loading}
+          style={{ ...btn('#1a4a2a','#7cbe7c'), fontSize:11, padding:'7px 0', marginTop:2, opacity: loading ? 0.6 : 1 }}
+        >
+          {loading ? '…' : mode === 'login' ? 'Login' : 'Create Account'}
         </button>
       </form>
 
-      {!isOnline && (
-        <div style={{ color: '#555', fontSize: 8, marginTop: 8, textAlign: 'center', lineHeight: 1.5 }}>
-          No Supabase keys — running offline.<br/>
-          Set NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local
-        </div>
-      )}
+      {!isOnline && <OfflineNote />}
     </div>
   );
 }
 
-const panel = {
+function OfflineNote() {
+  return (
+    <div style={{ color:'#555', fontSize:8, marginTop:10, textAlign:'center', lineHeight:1.6 }}>
+      Offline mode — multiplayer disabled.<br/>
+      Set NEXT_PUBLIC_SUPABASE_URL in .env.local
+    </div>
+  );
+}
+
+const panelStyle = {
   background: 'rgba(6,12,6,0.97)',
-  border: '1px solid #2a4a2a',
-  borderRadius: 6,
-  padding: '12px 14px',
-  minWidth: 220,
+  border:     '1px solid #2a4a2a',
+  borderRadius: 8,
+  padding:    '14px 16px',
+  minWidth:   230,
   fontFamily: 'monospace',
+  boxShadow:  '0 4px 24px rgba(0,0,0,0.8)',
 };
 
-const inp = {
-  background: '#0a140a',
-  border: '1px solid #2a4a2a',
-  borderRadius: 3,
-  color: '#9cce9c',
-  fontSize: 11,
-  padding: '5px 8px',
-  outline: 'none',
-  fontFamily: 'monospace',
-  width: '100%',
-  boxSizing: 'border-box',
+const inputStyle = {
+  background:   '#0a150a',
+  border:       '1px solid #2a4a2a',
+  borderRadius: 4,
+  color:        '#9cce9c',
+  fontSize:     11,
+  padding:      '6px 9px',
+  fontFamily:   'monospace',
+  width:        '100%',
+  boxSizing:    'border-box',
+  outline:      'none',
 };
 
-const smallBtn = (bg, color) => ({
-  background: bg,
-  border: `1px solid ${color}66`,
-  borderRadius: 3,
+const btn = (bg, color) => ({
+  background:   bg,
+  border:       `1px solid ${color}55`,
+  borderRadius: 4,
   color,
-  cursor: 'pointer',
-  padding: '4px 10px',
-  fontFamily: 'monospace',
+  cursor:       'pointer',
+  padding:      '4px 10px',
+  fontFamily:   'monospace',
   letterSpacing: 1,
-  transition: 'filter 0.1s',
+  transition:   'filter 0.1s',
 });

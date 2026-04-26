@@ -1,59 +1,85 @@
 /**
- * InputLockSystem - Global singleton that tracks which UI layers are open.
+ * InputLockSystem - Reference-counted, reason-based input lock.
  *
- * Any system that needs to block game keybinds registers itself here.
- * The KeyboardController checks InputLockSystem.locked before processing input.
+ * ROOT CAUSE OF THE BUGS this fixes:
+ *   1. lock/unlock imbalance: A component that calls lock() but then
+ *      unmounts via Escape/parent state (not its own onClose) never
+ *      called unlock() — lock permanently stuck.
+ *   2. Game loop calling lock('dialogue') every frame while active,
+ *      but only unlock() once on exit — left a stale count of N-1.
+ *   3. React useEffect cleanup racing with state updates meant
+ *      clearReason was sometimes skipped entirely.
  *
- * Lock sources:
- *   'chat'      - chat input box is focused
- *   'inventory' - inventory panel is open
- *   'auth'      - login / register form is open
- *   'dialogue'  - NPC dialogue is active
- *   'map'       - world map is open
+ * THE CONTRACT (must be followed by ALL callers):
+ *   - lock(reason)        → increment refcount
+ *   - clearReason(reason) → hard-reset to 0   ← use this in cleanup/finally
+ *   - unlock(reason)      → decrement by 1    ← only if you KNOW count==1
+ *   - NEVER call lock() inside a game loop tick. Only on state ENTER/EXIT.
+ *   - ALWAYS call clearReason() in React useEffect cleanup functions.
  *
- * Usage (read):
- *   if (InputLockSystem.locked) return;
- *
- * Usage (write):
- *   InputLockSystem.lock('chat');
- *   InputLockSystem.unlock('chat');
+ * Reasons used in this codebase:
+ *   'chat'      — chat input box focused
+ *   'inventory' — inventory panel open
+ *   'auth'      — login/register form open
+ *   'dialogue'  — NPC dialogue active (managed by DialogueSystem, not React)
+ *   'map'       — world map panel open
+ *   'death'     — player is dead/respawning
  */
 class _InputLockSystem {
   constructor() {
-    /** @type {Set<string>} */
-    this._sources = new Set();
+    /** @type {Map<string, number>} reason → refcount */
+    this._counts = new Map();
+    /** @type {Set<Function>} change listeners */
+    this._listeners = new Set();
   }
 
-  /** Lock game input for a named source */
-  lock(source) {
-    this._sources.add(source);
+  // ── Write API ─────────────────────────────────────────────────────
+
+  lock(reason) {
+    this._counts.set(reason, (this._counts.get(reason) ?? 0) + 1);
+    this._notify();
   }
 
-  /** Unlock a named source */
-  unlock(source) {
-    this._sources.delete(source);
+  unlock(reason) {
+    const cur = this._counts.get(reason) ?? 0;
+    if (cur <= 1) this._counts.delete(reason);
+    else this._counts.set(reason, cur - 1);
+    this._notify();
   }
 
-  /** True when ANY source is locking input */
-  get locked() {
-    return this._sources.size > 0;
+  /**
+   * Hard-reset one reason to 0.
+   * ALWAYS use this in React useEffect cleanup and finally blocks.
+   */
+  clearReason(reason) {
+    if (this._counts.has(reason)) {
+      this._counts.delete(reason);
+      this._notify();
+    }
   }
 
-  /** True when ONLY movement (not attacks/interactions) is locked */
-  get movementLocked() {
-    return this._sources.size > 0;
-  }
-
-  /** Returns copy of active sources for debugging */
-  get activeSources() {
-    return [...this._sources];
-  }
-
-  /** Force-clear all locks (use on modal close) */
+  /** Reset every lock — call on page unmount. */
   clearAll() {
-    this._sources.clear();
+    if (this._counts.size > 0) {
+      this._counts.clear();
+      this._notify();
+    }
+  }
+
+  // ── Read API ──────────────────────────────────────────────────────
+
+  get locked()          { return this._counts.size > 0; }
+  isLocked(reason)      { return (this._counts.get(reason) ?? 0) > 0; }
+  get activeSources()   { return [...this._counts.entries()].map(([k,v]) => `${k}(${v})`); }
+
+  // ── Observer API ──────────────────────────────────────────────────
+  subscribe(fn) {
+    this._listeners.add(fn);
+    return () => this._listeners.delete(fn);
+  }
+  _notify() {
+    for (const fn of this._listeners) fn(this.locked, this.activeSources);
   }
 }
 
-// Export singleton
 export const InputLockSystem = new _InputLockSystem();

@@ -1,5 +1,6 @@
 /**
- * Game - Top-level controller with auth/multiplayer lifecycle management
+ * Game - Top-level controller.
+ * Auth uses username+password only (email generated internally).
  */
 import { GameLoop }           from './engine/GameLoop.js';
 import { AssetLoader }        from './engine/AssetLoader.js';
@@ -10,15 +11,15 @@ import * as SB                from './systems/SupabaseService.js';
 
 export class Game {
   constructor(canvas, uiCallbacks) {
-    this.canvas      = canvas;
-    this.uiCallbacks = uiCallbacks;
-    this.assets      = new AssetLoader();
-    this.keyboard    = new KeyboardController();
-    this.scene       = null;
-    this.loop        = null;
-    this.initialized = false;
-    this._userId     = null;
-    this._username   = null;
+    this.canvas       = canvas;
+    this.uiCallbacks  = uiCallbacks;
+    this.assets       = new AssetLoader();
+    this.keyboard     = new KeyboardController();
+    this.scene        = null;
+    this.loop         = null;
+    this.initialized  = false;
+    this._userId      = null;
+    this._username    = null;
   }
 
   async init() {
@@ -28,18 +29,15 @@ export class Game {
     this._setupResize();
     this.initialized = true;
 
-    // Restore session if user was already logged in
+    // Restore existing session
     const session = await SB.getSession();
-    if (session?.user) {
-      await this._onLogin(session.user);
-    }
+    if (session?.user) await this._onLogin(session.user);
 
     return this;
   }
 
   start() { if (this.initialized) this.loop.start(); }
-
-  stop() {
+  stop()  {
     this.loop?.stop();
     this.keyboard?.destroy();
     this.scene?.unbindUser().catch(() => {});
@@ -48,17 +46,19 @@ export class Game {
   update(dt) { this.scene?.update(dt, this.keyboard); }
   render()   { this.scene?.render(); }
 
-  /* ── Auth actions ──────────────────────────────────────────────── */
+  // ── Auth ──────────────────────────────────────────────────────────
 
-  async login(email, password) {
-    const { data, error } = await SB.signIn(email, password);
+  /** Login with username + password */
+  async login(username, password) {
+    const { data, error } = await SB.signIn(username, password);
     if (error) return { error };
-    await this._onLogin(data.user);
+    await this._onLogin(data.user, username);
     return { data };
   }
 
-  async register(email, password, username) {
-    const { data, error } = await SB.signUp(email, password, username);
+  /** Register with username + password */
+  async register(username, password) {
+    const { data, error } = await SB.signUp(username, password);
     if (error) return { error };
     if (data?.user) await this._onLogin(data.user, username);
     return { data };
@@ -72,29 +72,30 @@ export class Game {
     this.uiCallbacks.onAuthChange?.(null);
   }
 
-  async _onLogin(user, usernameOverride) {
+  async _onLogin(user, usernameHint) {
     this._userId = user.id;
 
-    // Fetch player row from DB
     const playerRow = await SB.loadPlayer(user.id);
-    this._username  = usernameOverride
+
+    // Resolve username: hint (just typed) > DB row > metadata > fallback
+    this._username = usernameHint?.trim()
       || playerRow?.username
       || user.user_metadata?.username
-      || user.email?.split('@')[0]
       || 'Traveler';
 
-    // Load inventory + equipment from DB
     const invRows = await SB.loadInventory(user.id);
     const eqRows  = await SB.loadEquipment(user.id);
 
-    // Build saved data object for GameScene
     const savedData = playerRow ? {
       player: {
         x:  playerRow.x  ?? this.scene.spawnX,
         y:  playerRow.y  ?? this.scene.spawnY,
         hp: playerRow.hp ?? 100,
         energy: 50, facing: 'down',
-        inventory: this._buildInventorySave(invRows, eqRows),
+        inventory: {
+          slots: this._buildSlots(invRows),
+          equipped: eqRows,
+        },
       },
     } : null;
 
@@ -103,27 +104,25 @@ export class Game {
     this.uiCallbacks.onAuthChange?.({
       userId:   this._userId,
       username: this._username,
-      email:    user.email,
     });
   }
 
-  _buildInventorySave(invRows, equippedMap) {
-    // Convert DB rows to InventorySystem format
+  _buildSlots(invRows) {
     const slots = new Array(20).fill(null);
-    let idx = 0;
-    for (const row of invRows) {
-      if (idx >= slots.length) break;
-      slots[idx++] = { itemId: row.item_id, count: row.qty };
-    }
-    return { slots, equipped: equippedMap };
+    invRows.forEach((row, i) => {
+      if (i < slots.length) slots[i] = { itemId: row.item_id, count: row.qty };
+    });
+    return slots;
   }
 
-  /* ── Inventory/equipment proxies ──────────────────────────────── */
-  dropItem(i)      { this.scene?.dropItem(i); }
-  useItem(i)       { this.scene?.useItem(i); }
-  unequipSlot(s)   { this.scene?.unequipSlot(s); }
-  save()           { this.scene?.save(); }
-  load()           { this.scene?.load(); }
+  // ── Inventory/equipment proxies ───────────────────────────────────
+  dropItem(i)     { this.scene?.dropItem(i); }
+  useItem(i)      { this.scene?.useItem(i); }
+  unequipSlot(s)  { this.scene?.unequipSlot(s); }
+  save()          { this.scene?.save(); }
+  load()          { this.scene?.load(); }
+
+  sendChat(text)  { this.scene?.sendChat(text); }
 
   get username()   { return this._username; }
   get isLoggedIn() { return Boolean(this._userId); }
